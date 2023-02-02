@@ -75,8 +75,8 @@ def prefix2infix(prefix: List[str]) -> List[str]:
 
 def calculate_eval_svamp(equation, nums):
     op_list = ["+", "-", "*", "/", "(", ")", "^"]
-    equation = prefix2infix(equation.split(" ")).split(" ")
     try:
+    equation = prefix2infix(equation.split(" ")).split(" ")
         for i, e in enumerate(equation):
             if e not in op_list:
                 if e in nums:

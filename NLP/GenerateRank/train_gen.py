@@ -109,10 +109,14 @@ def train(args, tokenizer, device):
     logger.info('Total parameters: {}'.format(size))
 
     # Training
-    train_sampler = torch.utils.data.distributed.DistributedSampler(
-        train_dataset, num_replicas=args.world_size, rank=args.rank)
+    if args.distributed:
+        train_sampler = torch.utils.data.distributed.DistributedSampler(
+            train_dataset, num_replicas=args.world_size, rank=args.rank)
+        extra_args = {'sampler': train_sampler}
+    else:
+        extra_args = {}
     train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.per_gpu_train_batch_size,
-                                                   sampler=train_sampler, drop_last=True)
+                                                  drop_last=True, **extra_args)
 
     output_logging_file = os.path.join(args.output_dir, "log.txt")
     logger.info(f"len dataloader: {len(train_dataloader)}\n")
@@ -135,8 +139,8 @@ def train(args, tokenizer, device):
     scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=int(args.warmup_proportion * t_total),
                                                 num_training_steps=t_total)
 
-
-    model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.local_rank],
+    if args.distributed:
+        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.local_rank],
                                                            output_device=args.local_rank)
 
 
@@ -260,22 +264,30 @@ def main(args):
     global SRC_LANG, TGT_LANG
     SRC_LANG = args.src_lang
     TGT_LANG = args.tgt_lang
-    assert (torch.cuda.is_available())
-    device_count = torch.cuda.device_count()
 
     # Manually set the device ids.
-    torch.cuda.set_device(args.local_rank)
-    device = torch.device("cuda", args.local_rank)
-    print('device_id (local_rank): %s' % args.local_rank)
-    print('device_count: %s, rank: %s, world_size: %s' % (device_count, args.rank, args.world_size))
+    if not args.no_cuda:
+        assert (torch.cuda.is_available()), "CUDA driver is not available.\
+                                            Use --no_cuda to run on CPU."
+        device_count = torch.cuda.device_count()
+        torch.cuda.set_device(args.local_rank)
+        device = torch.device("cuda", args.local_rank)
 
-    torch.distributed.init_process_group(backend='nccl', world_size=args.world_size, rank=args.rank)
+        print('device_id (local_rank): %s' % args.local_rank)
+        print('device_count: %s, rank: %s, world_size: %s' % (device_count, args.rank, args.world_size))
+    else:
+        device = torch.device("cuda" if torch.cuda.is_available() and not args.no_cuda else "cpu")
+        args.n_gpu = 0 if args.no_cuda else torch.cuda.device_count()
+        args.local_rank = -1
 
     if args.rank == 0 and os.path.exists(args.output_dir) and os.listdir(args.output_dir):
         raise ValueError("Output directory ({}) already exists and is not empty.".format(args.output_dir))
-    torch.distributed.barrier()
     if not os.path.exists(args.output_dir) and args.rank == 0:
         os.makedirs(args.output_dir)
+
+    if args.distributed:
+        torch.distributed.init_process_group(backend='nccl', world_size=args.world_size, rank=args.rank)
+        torch.distributed.barrier()
 
     args.n_gpu = torch.cuda.device_count()
     logger.info("args: {}".format(args))
@@ -339,6 +351,10 @@ if __name__ == "__main__":
                         help="For distributed training: local_rank")
     parser.add_argument("--src_lang", default='zh_CN', type=str)
     parser.add_argument("--tgt_lang", default='en_XX', type=str)
+    # argument for distributed training a boolean flag
+    parser.add_argument('--distributed', default=False,
+                        action='store_true',
+                        help='Use distributed training.')
 
     args = parser.parse_args()
     args.rank = int(os.getenv('RANK', '0'))

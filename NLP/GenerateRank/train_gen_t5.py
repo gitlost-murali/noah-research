@@ -27,15 +27,14 @@ import random
 import time
 
 import numpy as np
-import pandas as pd
 import torch
 
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm, trange
-from transformers import T5ForConditionalGeneration, T5ForConditionalGeneration
-from transformers import (T5Tokenizer, T5Tokenizer, CONFIG_NAME,
+from transformers import T5ForConditionalGeneration, MT5ForConditionalGeneration
+from transformers import (T5Tokenizer, MT5Tokenizer, CONFIG_NAME,
                          WEIGHTS_NAME, AdamW, get_linear_schedule_with_warmup)
-from utils import is_equal, clean_text, is_equal_svamp
+from utils import is_equal, clean_text
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
                     datefmt='%m/%d/%Y %H:%M:%S',
@@ -43,45 +42,36 @@ logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message
 logger = logging.getLogger(__name__)
 
 class TextDataset(Dataset):
-    def __init__(self, tokenizer, data_file, dataset_name, max_source_length, max_target_length):
+    def __init__(self, tokenizer, data_file, max_source_length, max_target_length):
         self.max_source_length = max_source_length
         self.max_target_length = max_target_length
         self.data_file = data_file
         self.tokenizer = tokenizer
-        self.dataset_name = dataset_name
         self.features = {}
         self.prepare_data()
 
-    def store_feature(self, indx, goal, proof):
-        batch_encoding = self.tokenizer.prepare_seq2seq_batch(
-            src_texts=goal,
-            tgt_texts=proof,
-            max_length=self.max_source_length,
-            max_target_length=self.max_target_length,
-            src_lang=SRC_LANG,
-            tgt_lang=TGT_LANG,
-            padding="max_length"
-        ).data
-        for k,v in batch_encoding.items():
-            batch_encoding[k] = torch.tensor(v)
-
-        self.features[indx] = batch_encoding
-
     def prepare_data(self):
-        if self.dataset_name == "svamp":
-            # read df line by line and access the columns by index
-            df = pd.read_csv(self.data_file, sep=',')
-            # read df line by line and access the columns by name
-            for i, row in tqdm(enumerate(df.itertuples()), desc="Prepare train data"):
-                goal, proof = row.Question, row.Equation
-                self.store_feature(i, goal, proof)
-        else:
-            with open(self.data_file, encoding="utf-8") as f:
-                lines = f.readlines()
-            for i, line in enumerate(tqdm(lines, desc="Prepare train data")):
-                items = line.strip().split('\t')
-                goal, proof = items[0], items[1]
-                self.store_feature(i, goal, proof)
+        with open(self.data_file, encoding="utf-8") as f:
+            lines = f.readlines()
+        for i, line in enumerate(tqdm(lines, desc="Prepare train data")):
+
+            items = line.strip().split('\t')
+
+            goal, proof = items[0], items[1]
+
+            batch_encoding = self.tokenizer.prepare_seq2seq_batch(
+                src_texts=goal,
+                tgt_texts=proof,
+                max_length=self.max_source_length,
+                max_target_length=self.max_target_length,
+                src_lang=SRC_LANG,
+                tgt_lang=TGT_LANG,
+                padding="max_length"
+            ).data
+            for k,v in batch_encoding.items():
+                batch_encoding[k] = torch.tensor(v)
+
+            self.features[i] = batch_encoding
 
     def __len__(self):
         return len(self.features)
@@ -100,19 +90,13 @@ def set_seed(args):
 def train(args, tokenizer, device):
     """ Train the model """
 
-    train_dataset = TextDataset(tokenizer, args.train_file, args.dataset_name,
-                                args.max_source_length, args.max_target_length)
+    train_dataset = TextDataset(tokenizer, args.train_file, args.max_source_length, args.max_target_length)
+    with open(args.valid_file) as f:
+        valid_lines = f.readlines()
+    with open(args.test_file) as f:
+        test_lines = f.readlines()
 
-    if args.dataset_name == "svamp":
-        valid_lines = pd.read_csv(args.valid_file, sep=',')
-        test_lines = pd.read_csv(args.test_file, sep=',')
-    else:
-        with open(args.valid_file) as f:
-            valid_lines = f.readlines()
-        with open(args.test_file) as f:
-            test_lines = f.readlines()
-
-    model = T5ForConditionalGeneration.from_pretrained(args.model_path)
+    model = MT5ForConditionalGeneration.from_pretrained(args.model_path)
     model.resize_token_embeddings(len(tokenizer))
 
     config = model.config
@@ -211,14 +195,14 @@ def train(args, tokenizer, device):
             result['global_step'] = global_step
             result['epoch'] = epoch
             test_start_time = time.time()
-            valid_acc, valid_total = test(model, tokenizer, valid_lines, args.dataset_name)
+            valid_acc, valid_total = test(model, tokenizer, valid_lines)
             test_end_time = time.time()
             valid_acc = valid_acc / valid_total
             result['valid_acc'] = valid_acc
             if valid_acc > best_valid_acc:
                 best_valid_acc = valid_acc
                 best_valid_epoch = epoch
-                test_acc, test_total = test(model, tokenizer, test_lines, args.dataset_name)
+                test_acc, test_total = test(model, tokenizer, test_lines)
                 test_acc = test_acc / test_total
 
                 logging.info("** ** * Saving fine-tuned model ** ** * ")
@@ -253,44 +237,28 @@ def train(args, tokenizer, device):
 
     return global_step, tr_loss / global_step
 
-def test(model, tokenizer, lines, dataset_name, num_beam=10, num_return_sequences=1):
+def test(model, tokenizer, lines, num_beam=10, num_return_sequences=1):
     model = model.module if hasattr(model, "module") else model
     model.eval()
     acc = 0
     total = len(lines)
+    for i, line in enumerate(tqdm(lines)):
+        problem, label = line.strip().split("\t")
+        batch = tokenizer.prepare_seq2seq_batch(problem, src_lang=SRC_LANG, return_tensors="pt")
+        for k,v in batch.items():
+            batch[k] = v.cuda()
+        text = model.generate(**batch, decoder_start_token_id=tokenizer.lang_code_to_id["en_XX"],
+                              num_beams=num_beam, early_stopping=True, max_length=100, num_return_sequences=num_return_sequences)
 
-    if dataset_name == "svamp":
-        for i, row in tqdm(enumerate(lines.itertuples()), desc="Inferring..."):
-            problem, label, numbers = row.Question, row.Equation, row.Numbers
-            text = inference(model, tokenizer, problem, num_beam, num_return_sequences)
-            for candidate in text:
-                if is_equal_svamp(label, candidate, numbers.split()):
-                    acc += 1
-                    break
-    else:
-        for i, line in enumerate(tqdm(lines)):
-            problem, label = line.strip().split("\t")
-            text = inference(model, tokenizer, problem, num_beam, num_return_sequences)
-            text = [clean_text(t) for t in text]
-            for candidate in text:
-                if is_equal(label, candidate):
-                    acc += 1
-                    break
+        text = tokenizer.batch_decode(text, skip_special_tokens=True)
+        assert len(text) == num_return_sequences
+        text = [clean_text(t) for t in text]
+
+        for candidate in text:
+            if is_equal(label, candidate):
+                acc += 1
+                break
     return acc, total
-
-def inference(model, tokenizer, problem, num_beam=10, num_return_sequences=1):
-    batch = tokenizer.prepare_seq2seq_batch(problem, src_lang=SRC_LANG, return_tensors="pt")
-    for k,v in batch.items():
-        batch[k] = v.cuda()
-
-    # extra_details = {"decoder_start_token_id":tokenizer.lang_code_to_id["en_XX"]}
-    text = model.generate(**batch,
-                            num_beams=num_beam, early_stopping=True, max_length=100,
-                            num_return_sequences=num_return_sequences)
-
-    text = tokenizer.batch_decode(text, skip_special_tokens=True)
-    assert len(text) == num_return_sequences
-    return text
 
 def main(args):
     global SRC_LANG, TGT_LANG
@@ -328,7 +296,7 @@ def main(args):
     set_seed(args)
 
     # Load pretrained tokenizer
-    tokenizer = T5Tokenizer.from_pretrained(args.model_path, do_lower_case=args.do_lower_case)
+    tokenizer = MT5Tokenizer.from_pretrained(args.model_path, do_lower_case=args.do_lower_case)
     new_tokens = ['<SEP>',] + [f"#{i}" for i in range(30)]
     tokenizer.add_tokens(new_tokens)
 
@@ -383,11 +351,10 @@ if __name__ == "__main__":
                         help="For distributed training: local_rank")
     parser.add_argument("--src_lang", default='en_XX', type=str)
     parser.add_argument("--tgt_lang", default='en_XX', type=str)
+    # argument for distributed training a boolean flag
     parser.add_argument('--distributed', default=False,
                         action='store_true',
                         help='Use distributed training.')
-    parser.add_argument('--dataset_name', default="svamp", type=str,
-                        help='Use svamp/math23k dataset.', required=True)
 
     args = parser.parse_args()
     args.rank = int(os.getenv('RANK', '0'))

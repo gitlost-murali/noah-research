@@ -56,6 +56,44 @@ def calculate_eval(equation, nums):
         return None
     return ans
 
+from typing import List
+
+# Convert prefix expression to infix expression
+def prefix2infix(prefix: List[str]) -> List[str]:
+    """Example: 
+    prefix = ['+', '1', '2']
+    infix = ['(', '1', '+', '2', ')']"""
+    stack = []
+    for i in range(len(prefix)-1, -1, -1):
+        if prefix[i] in ['+', '-', '*', '/']:
+            op1 = stack.pop()
+            op2 = stack.pop()
+            stack.append('(' +" "+ op1 +" "+ prefix[i] +" "+ op2 +" "+ ')')
+        else:
+            stack.append(prefix[i])
+    return stack.pop()
+
+def calculate_eval_svamp(equation, nums):
+    op_list = ["+", "-", "*", "/", "(", ")", "^"]
+    equation = prefix2infix(equation.split(" ")).split(" ")
+    try:
+        for i, e in enumerate(equation):
+            if e not in op_list:
+                if e in nums:
+                    equation[i] = str(nums[e])
+                else:
+                    equation[i] = e
+            if equation[i][-1] == "%":
+                equation[i] = f"( {equation[i][:-1]} / 100 )"
+
+        after_number_exp = " ".join(equation)
+        assert not '#' in after_number_exp
+        after_number_exp = after_number_exp.replace("^", "**")
+        ans = eval(after_number_exp)
+    except:
+        return None
+    return ans
+
 def is_equal(label, text):
     for test_times in range(3):
         failed = 0
@@ -67,6 +105,26 @@ def is_equal(label, text):
             nums = get_test_nums()
             label_ans = calculate_eval(label, nums)
         text_ans = calculate_eval(text, nums)
+        try:
+            if text_ans is None or abs(text_ans - label_ans) > 1e-5:
+                return False
+        except:
+            return False
+    return True
+
+def is_equal_svamp(label, text, numbers):
+    nums = {"#_pi": 3.14, "PI": 3.14}
+    for ix, num in enumerate(numbers):
+        nums[f"number{ix}"] = num
+    for test_times in range(3):
+        failed = 0
+        label_ans = None
+        while label_ans is None:
+            failed += 1
+            if failed == 5:
+                return False
+            label_ans = calculate_eval_svamp(label, nums)
+        text_ans = calculate_eval_svamp(text, nums)
         try:
             if text_ans is None or abs(text_ans - label_ans) > 1e-5:
                 return False

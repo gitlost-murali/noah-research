@@ -33,7 +33,7 @@ import torch
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm, trange
 from transformers import T5ForConditionalGeneration, T5ForConditionalGeneration
-from transformers import (T5Tokenizer, T5Tokenizer, CONFIG_NAME,
+from transformers import (T5Tokenizer, AutoTokenizer, CONFIG_NAME,
                          WEIGHTS_NAME, AdamW, get_linear_schedule_with_warmup)
 from utils import is_equal, clean_text, is_equal_svamp
 
@@ -328,7 +328,11 @@ def main(args):
     set_seed(args)
 
     # Load pretrained tokenizer
-    tokenizer = T5Tokenizer.from_pretrained(args.model_path, do_lower_case=args.do_lower_case)
+    try:
+        tokenizer = T5Tokenizer.from_pretrained(args.model_path, do_lower_case=args.do_lower_case)
+    except: # For CodeT5
+        tokenizer = AutoTokenizer.from_pretrained(args.model_path, do_lower_case=args.do_lower_case)
+
     new_tokens = ['<SEP>',] + [f"#{i}" for i in range(30)]
     tokenizer.add_tokens(new_tokens)
 

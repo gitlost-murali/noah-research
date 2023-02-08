@@ -205,9 +205,8 @@ def train(args, tokenizer, device):
                         writer.write("%s = %s\n" % (key, str(result[key])))
                     writer.write("\n")
 
-                wandb.log({"train_loss": result['train_loss'],
-                           "global_step": result['global_step'],
-                           "epoch": result['epoch']})
+                wandb.log(result)
+
         # epoch end
         train_end_time = time.time()
         if args.rank == 0 and epoch % args.test_per_epoch == 0:
@@ -217,18 +216,17 @@ def train(args, tokenizer, device):
             test_start_time = time.time()
             valid_acc, valid_total = test(model, tokenizer, valid_lines, args.dataset_name)
             test_end_time = time.time()
-            valid_acc = valid_acc / valid_total
+            valid_acc = valid_acc[1] / valid_total # Always use the first class as the positive class 
             result['valid_acc'] = valid_acc
 
-            wandb.log({"valid_acc": valid_acc,
-                      "global_step": result['global_step'],
-                      "epoch": result['epoch']})
+            wandb.log(result)
 
             if valid_acc > best_valid_acc:
                 best_valid_acc = valid_acc
                 best_valid_epoch = epoch
-                test_acc, test_total = test(model, tokenizer, test_lines, args.dataset_name)
-                test_acc = test_acc / test_total
+                test_acc, test_total = test(model, tokenizer, test_lines, args.dataset_name, num_return_sequences=args.num_seq)
+                for k, acc in test_acc.items():
+                    test_acc[k] = acc / test_total
 
                 logging.info("** ** * Saving fine-tuned model ** ** * ")
                 # Only save the model it-self
@@ -247,19 +245,14 @@ def train(args, tokenizer, device):
                 config.to_json_file(output_config_file)
                 tokenizer.save_pretrained(output_dir)
 
-            result['test_acc_at_best_valid'] = test_acc
+            for k, v in test_acc.items():
+                result['test_acc_at_best_valid_' + str(k)] = v
             result['best_valid_acc'] = best_valid_acc
             result['best_valid_epoch'] = best_valid_epoch
             result['train_epoch_time'] = train_end_time - train_start_time
             result['test_time'] = test_end_time - test_start_time
 
-            wandb.log({"test_acc_at_best_valid": test_acc,
-                       "best_valid_acc": best_valid_acc,
-                       "best_valid_epoch": best_valid_epoch,
-                       "train_epoch_time": train_end_time - train_start_time,
-                       "test_time": test_end_time - test_start_time,
-                       "global_step": result['global_step'],
-                       "epoch": result['epoch']})
+            wandb.log(result)
 
             with open(output_logging_file, "a") as writer:
                 logger.info("***** Eval results *****")
@@ -270,30 +263,39 @@ def train(args, tokenizer, device):
 
     return global_step, tr_loss / global_step
 
+# function to calculate top-k accuracy given the index at which answer is correct
+def add_to_topk_accuracylist(candidate_number, topk_acc_list, topk):
+    for k in range(candidate_number, topk, 1):
+        topk_acc_list[k+1] += 1
+    return topk_acc_list
+
 def test(model, tokenizer, lines, dataset_name, num_beam=10, num_return_sequences=1):
     model = model.module if hasattr(model, "module") else model
     model.eval()
     acc = 0
     total = len(lines)
+    topk_acc_list = {(k+1): 0 for k in range(num_return_sequences)}
 
     if dataset_name == "svamp":
         for i, row in tqdm(enumerate(lines.itertuples()), desc="Inferring..."):
             problem, label, numbers = row.Question, row.Equation, row.Numbers
             text = inference(model, tokenizer, problem, num_beam, num_return_sequences)
-            for candidate in text:
+            for candidatenum, candidate in enumerate(text):
                 if is_equal_svamp(label, candidate, numbers.split()):
                     acc += 1
+                    topk_acc_list = add_to_topk_accuracylist(candidatenum, topk_acc_list, num_return_sequences)
                     break
     else:
         for i, line in enumerate(tqdm(lines)):
             problem, label = line.strip().split("\t")
             text = inference(model, tokenizer, problem, num_beam, num_return_sequences)
             text = [clean_text(t) for t in text]
-            for candidate in text:
+            for candidatenum, candidate in enumerate(text):
                 if is_equal(label, candidate):
                     acc += 1
+                    topk_acc_list = add_to_topk_accuracylist(candidatenum, topk_acc_list, num_return_sequences)
                     break
-    return acc, total
+    return topk_acc_list, total
 
 def inference(model, tokenizer, problem, num_beam=10, num_return_sequences=1):
     batch = tokenizer.prepare_seq2seq_batch(problem, src_lang=SRC_LANG, return_tensors="pt")
@@ -409,7 +411,8 @@ if __name__ == "__main__":
                         help='Use distributed training.')
     parser.add_argument('--dataset_name', default="svamp", type=str,
                         help='Use svamp/math23k dataset.', required=True)
-
+    parser.add_argument('--num_seq', type=int, default=10, required=False,
+                        help='Number of sequences to generate for topk calculation')
     args = parser.parse_args()
 
     project_name = f"{args.model_path}-t5-{args.dataset_name}-src{args.max_source_length}-tgt{args.max_target_length}"

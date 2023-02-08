@@ -30,6 +30,7 @@ import numpy as np
 import pandas as pd
 import torch
 
+import wandb
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm, trange
 from transformers import T5ForConditionalGeneration, T5ForConditionalGeneration
@@ -204,6 +205,9 @@ def train(args, tokenizer, device):
                         writer.write("%s = %s\n" % (key, str(result[key])))
                     writer.write("\n")
 
+                wandb.log({"train_loss": result['train_loss'],
+                           "global_step": result['global_step'],
+                           "epoch": result['epoch']})
         # epoch end
         train_end_time = time.time()
         if args.rank == 0 and epoch % args.test_per_epoch == 0:
@@ -215,6 +219,11 @@ def train(args, tokenizer, device):
             test_end_time = time.time()
             valid_acc = valid_acc / valid_total
             result['valid_acc'] = valid_acc
+
+            wandb.log({"valid_acc": valid_acc,
+                      "global_step": result['global_step'],
+                      "epoch": result['epoch']})
+
             if valid_acc > best_valid_acc:
                 best_valid_acc = valid_acc
                 best_valid_epoch = epoch
@@ -243,6 +252,14 @@ def train(args, tokenizer, device):
             result['best_valid_epoch'] = best_valid_epoch
             result['train_epoch_time'] = train_end_time - train_start_time
             result['test_time'] = test_end_time - test_start_time
+
+            wandb.log({"test_acc_at_best_valid": test_acc,
+                       "best_valid_acc": best_valid_acc,
+                       "best_valid_epoch": best_valid_epoch,
+                       "train_epoch_time": train_end_time - train_start_time,
+                       "test_time": test_end_time - test_start_time,
+                       "global_step": result['global_step'],
+                       "epoch": result['epoch']})
 
             with open(output_logging_file, "a") as writer:
                 logger.info("***** Eval results *****")
@@ -394,6 +411,10 @@ if __name__ == "__main__":
                         help='Use svamp/math23k dataset.', required=True)
 
     args = parser.parse_args()
+
+    project_name = f"{args.model_path}-t5-{args.dataset_name}-src{args.max_source_length}-tgt{args.max_target_length}"
+    wandb.init(project=project_name, entity="thesismurali-self")
+    wandb.config = vars(args)
     args.rank = int(os.getenv('RANK', '0'))
     args.world_size = int(os.getenv("WORLD_SIZE", '1'))
     main(args)

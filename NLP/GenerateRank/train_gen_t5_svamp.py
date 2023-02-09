@@ -433,7 +433,7 @@ if __name__ == "__main__":
                         help='Order of equation to generate')
     args = parser.parse_args()
 
-    project_name = f"{args.model_path}-t5-{args.dataset_name}-{args.eqn_order}-src{args.max_source_length}-tgt{args.max_target_length}"
+    project_name = f"{Path(args.model_path).name}-t5-{args.dataset_name}-{args.eqn_order}-src{args.max_source_length}-tgt{args.max_target_length}"
 
     current_time = datetime.datetime.now()
     timestamp = current_time.strftime("%b_%d_%Y")

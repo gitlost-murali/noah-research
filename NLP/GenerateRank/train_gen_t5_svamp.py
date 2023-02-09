@@ -30,7 +30,10 @@ import numpy as np
 import pandas as pd
 import torch
 
+import datetime
 import wandb
+
+from pathlib import Path
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm, trange
 from transformers import T5ForConditionalGeneration, T5ForConditionalGeneration
@@ -431,7 +434,12 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     project_name = f"{args.model_path}-t5-{args.dataset_name}-{args.eqn_order}-src{args.max_source_length}-tgt{args.max_target_length}"
-    wandb.init(project=project_name, entity="thesismurali-self", mode="disabled")
+
+    current_time = datetime.datetime.now()
+    timestamp = current_time.strftime("%b_%d_%Y")
+    args.output_dir = Path(args.output_dir).parent/f"{Path(args.output_dir).stem}_{timestamp}_{args.dataset_name}_{args.eqn_order}"
+
+    wandb.init(project=project_name, entity="thesismurali-self")
     wandb.config = vars(args)
     args.rank = int(os.getenv('RANK', '0'))
     args.world_size = int(os.getenv("WORLD_SIZE", '1'))

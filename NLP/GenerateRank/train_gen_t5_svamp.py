@@ -295,6 +295,8 @@ def test(model, tokenizer, lines, dataset_name,
     if dataset_name == "svamp":
         for i, row in tqdm(enumerate(lines.itertuples()), desc="Inferring..."):
             problem, label, numbers = row.Question, row.Equation, row.Numbers
+            if eqn_order == "infix":
+                label = prefix2infix(label.split(" "))
             text = inference(model, tokenizer, problem, num_beam, num_return_sequences)
             for candidatenum, candidate in enumerate(text):
                 if is_equal_svamp(label, candidate, numbers.split(), order=eqn_order):

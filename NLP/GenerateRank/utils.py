@@ -73,10 +73,11 @@ def prefix2infix(prefix: List[str]) -> List[str]:
             stack.append(prefix[i])
     return stack.pop()
 
-def calculate_eval_svamp(equation, nums):
+def calculate_eval_svamp(equation, nums, order = "prefix"):
     op_list = ["+", "-", "*", "/", "(", ")", "^"]
     try:
-        equation = prefix2infix(equation.split(" ")).split(" ")
+        if order=="prefix": equation = prefix2infix(equation.split(" ")).split(" ")
+        else: equation = clean_text(equation).split(" ")
         for i, e in enumerate(equation):
             if e not in op_list:
                 if e in nums:
@@ -112,7 +113,7 @@ def is_equal(label, text):
             return False
     return True
 
-def is_equal_svamp(label, text, numbers):
+def is_equal_svamp(label, text, numbers, order = "prefix"):
     nums = {"#_pi": 3.14, "PI": 3.14}
     for ix, num in enumerate(numbers):
         nums[f"number{ix}"] = num
@@ -123,8 +124,8 @@ def is_equal_svamp(label, text, numbers):
             failed += 1
             if failed == 5:
                 return False
-            label_ans = calculate_eval_svamp(label, nums)
-        text_ans = calculate_eval_svamp(text, nums)
+            label_ans = calculate_eval_svamp(label, nums, order=order)
+        text_ans = calculate_eval_svamp(text, nums, order=order)
         try:
             if text_ans is None or abs(text_ans - label_ans) > 1e-5:
                 return False

@@ -171,10 +171,15 @@ def train(args, tokenizer, device):
     with open(args.train_file) as f:
         raw_train_lines = f.readlines()
     raw_train_dataset = LineDataset(raw_train_lines)
-    raw_train_sampler = torch.utils.data.distributed.DistributedSampler(
-        raw_train_dataset, num_replicas=args.world_size, rank=args.rank, shuffle=False)
-    raw_train_dataloader = torch.utils.data.DataLoader(raw_train_dataset, batch_size=16,
-                                                   sampler=raw_train_sampler, drop_last=False)
+    if args.distributed:
+        raw_train_sampler = torch.utils.data.distributed.DistributedSampler(
+            raw_train_dataset, num_replicas=args.world_size, rank=args.rank, shuffle=False)
+        extra_args = {'sampler': raw_train_sampler}
+    else:
+        extra_args = {}
+    raw_train_dataloader = torch.utils.data.DataLoader(raw_train_dataset,
+                                                       batch_size=args.per_gpu_train_batch_size,
+                                                       drop_last=False,**extra_args)
 
     with open(args.valid_file) as f:
         valid_lines = f.readlines()
@@ -208,22 +213,27 @@ def train(args, tokenizer, device):
     generate_sample(model, tokenizer, raw_train_dataloader, device, output_samples_file, args)
     print(f"finish generate samples in {time.time() - gen_start_time}")
 
-    torch.distributed.barrier()
+    if args.distributed: torch.distributed.barrier()
 
     if args.local_rank == 0:
         print("collecting train data")
         collect_data_to_trainfile(args)
-    torch.distributed.barrier()
+    if args.distributed: torch.distributed.barrier()
     with open(args.collect_file) as f:
         collect_lines = f.readlines()
     all_expressions = None
     if args.rule_negatives:
         collect_lines = add_rule_negatives(collect_lines, add_num=args.num_negatives, all_expressions=all_expressions)
     train_dataset = TextDataset(tokenizer, collect_lines, args.max_source_length, args.max_target_length)
-    train_sampler = torch.utils.data.distributed.DistributedSampler(
-        train_dataset, num_replicas=args.world_size, rank=args.rank)
+    
+    if args.distributed:
+        train_sampler = torch.utils.data.distributed.DistributedSampler(
+            train_dataset, num_replicas=args.world_size, rank=args.rank)
+        extra2_args = {'sampler': train_sampler}
+    else:
+        extra2_args = {}
     train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.per_gpu_train_batch_size,
-                                                   sampler=train_sampler, drop_last=False)
+                                                   drop_last=False, **extra2_args)
 
 
     output_logging_file = os.path.join(args.output_dir, "log.txt")
@@ -246,7 +256,8 @@ def train(args, tokenizer, device):
     scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=int(args.warmup_proportion * t_total),
                                                 num_training_steps=t_total)
 
-    model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.local_rank],
+    if args.distributed:
+        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.local_rank],
                                                            output_device=args.local_rank)
 
 
@@ -319,13 +330,13 @@ def train(args, tokenizer, device):
                 os.makedirs(test_output_dir)
             valid_output_file = os.path.join(test_output_dir, "output_gen.valid")
 
-            valid_acc, valid_acc_all, valid_total = gen_test(model, tokenizer, valid_lines, test_file=valid_output_file)
+            valid_acc, valid_acc_all, valid_total = gen_test(model, device, tokenizer, valid_lines, test_file=valid_output_file)
             valid_acc = valid_acc / valid_total
             valid_acc_all = valid_acc_all / valid_total
 
             with open(valid_output_file) as f:
                 valid_rank_lines = f.readlines()
-            valid_rank_acc = genrank_test(args, model, tokenizer, valid_rank_lines, tokenizer.pad_token_id)
+            valid_rank_acc = genrank_test(args, model, device, tokenizer, valid_rank_lines, tokenizer.pad_token_id)
 
             test_end_time = time.time()
             result['valid_acc'] = valid_acc
@@ -379,7 +390,7 @@ def train(args, tokenizer, device):
                     writer.write("%s = %s\n" % (key, str(result[key])))
                 writer.write("\n")
 
-        torch.distributed.barrier()
+        if args.distributed: torch.distributed.barrier()
         # generate samples for revise
         if args.regenerate == 1:
             output_samples_file = os.path.join(args.output_dir, f"gen_samples_{args.local_rank}.train")
@@ -388,16 +399,20 @@ def train(args, tokenizer, device):
             if args.local_rank == 0:
                 print("collecting train data")
                 collect_data_to_trainfile(args)
-            torch.distributed.barrier()
+            if args.distributed: torch.distributed.barrier()
             with open(args.collect_file) as f:
                 collect_lines = f.readlines()
             if args.rule_negatives:
                 collect_lines = add_rule_negatives(collect_lines, add_num=args.num_negatives, all_expressions=all_expressions)
             train_dataset = TextDataset(tokenizer, collect_lines, args.max_source_length, args.max_target_length)
-            train_sampler = torch.utils.data.distributed.DistributedSampler(
-                train_dataset, num_replicas=args.world_size, rank=args.rank)
+            if args.distributed:
+                train_sampler = torch.utils.data.distributed.DistributedSampler(
+                    train_dataset, num_replicas=args.world_size, rank=args.rank)
+                extra3_args = {'sampler': train_sampler}
+            else:
+                extra3_args = {}
             train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.per_gpu_train_batch_size,
-                                                           sampler=train_sampler, drop_last=False)
+                                                           drop_last=False, **extra3_args)
 
 
     return global_step, tr_loss / global_step
@@ -456,7 +471,7 @@ def generate_sample(model, tokenizer, dataloader, device, output_samples_file, a
 
 
 
-def genrank_test(args, model, tokenizer, lines, pad_token_id):
+def genrank_test(args, model, device, tokenizer, lines, pad_token_id):
     print("rank testing..........")
     model = model.module if hasattr(model, "module") else model
     model.eval()
@@ -506,7 +521,7 @@ def genrank_test(args, model, tokenizer, lines, pad_token_id):
             if k == "answer_label":
                 labels = [b[k] for b in batch_encoding]
             else:
-                batch[k] = torch.stack([b[k] for b in batch_encoding]).cuda()
+                batch[k] = torch.stack([b[k] for b in batch_encoding]).to(device)
 
         output = model(**batch)
         output = output["cls_logits"]
@@ -516,7 +531,7 @@ def genrank_test(args, model, tokenizer, lines, pad_token_id):
             acc += 1
     return acc * 100.0 / len(all_batch)
 
-def gen_test(model, tokenizer, lines, num_beam=10, num_return_sequences=10, test_file=None):
+def gen_test(model, device, tokenizer, lines, num_beam=10, num_return_sequences=10, test_file=None):
     print("gen testing ........")
     model = model.module if hasattr(model, "module") else model
     model.eval()
@@ -528,7 +543,7 @@ def gen_test(model, tokenizer, lines, num_beam=10, num_return_sequences=10, test
         hit_acc = hit_1 = False
         batch = tokenizer.prepare_seq2seq_batch(problem, src_lang=SRC_LANG, return_tensors="pt")
         for k,v in batch.items():
-            batch[k] = v.cuda()
+            batch[k] = v.to(device)
         text = model.generate(**batch, decoder_start_token_id=tokenizer.lang_code_to_id["en_XX"],
                               num_beams=num_beam, early_stopping=True, max_length=100, num_return_sequences=num_return_sequences)
 
@@ -557,21 +572,27 @@ def main(args):
     global SRC_LANG, TGT_LANG
     SRC_LANG = args.src_lang
     TGT_LANG = args.tgt_lang
-    assert (torch.cuda.is_available())
-    device_count = torch.cuda.device_count()
 
     # Manually set the device ids.
-    # if device_count > 0:
-    # args.local_rank = args.rank % device_count
-    torch.cuda.set_device(args.local_rank)
-    device = torch.device("cuda", args.local_rank)
-    print('device_id (local_rank): %s' % args.local_rank)
-    print('device_count: %s, rank: %s, world_size: %s' % (device_count, args.rank, args.world_size))
-    torch.distributed.init_process_group(backend='nccl', world_size=args.world_size, rank=args.rank)
+    if not args.no_cuda:
+        assert (torch.cuda.is_available()), "CUDA driver is not available.\
+                                            Use --no_cuda to run on CPU."
+        device_count = torch.cuda.device_count()
+        torch.cuda.set_device(args.local_rank)
+        device = torch.device("cuda", args.local_rank)
+
+        print('device_id (local_rank): %s' % args.local_rank)
+        print('device_count: %s, rank: %s, world_size: %s' % (device_count, args.rank, args.world_size))
+    else:
+        device = torch.device("cuda" if torch.cuda.is_available() and not args.no_cuda else "cpu")
+        args.n_gpu = 0 if args.no_cuda else torch.cuda.device_count()
+        args.local_rank = -1
+
+    if args.distributed: torch.distributed.init_process_group(backend='nccl', world_size=args.world_size, rank=args.rank)
     print("init done")
     if args.rank == 0 and os.path.exists(args.output_dir) and os.listdir(args.output_dir):
         raise ValueError("Output directory ({}) already exists and is not empty.".format(args.output_dir))
-    torch.distributed.barrier()
+    if args.distributed: torch.distributed.barrier()
 
     if not os.path.exists(args.output_dir) and args.rank == 0:
         os.makedirs(args.output_dir)
@@ -649,7 +670,9 @@ if __name__ == "__main__":
     parser.add_argument("--train_url", type=str, default="", help="s3 url")
     parser.add_argument("--src_lang", default='zh_CN', type=str)
     parser.add_argument("--tgt_lang", default='en_XX', type=str)
-
+    parser.add_argument('--distributed', default=False,
+                        action='store_true',
+                        help='Use distributed training.')
     args = parser.parse_args()
     args.rank = int(os.getenv('RANK', '0'))
     args.world_size = int(os.getenv("WORLD_SIZE", '1'))

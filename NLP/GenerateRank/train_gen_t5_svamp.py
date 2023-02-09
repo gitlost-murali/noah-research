@@ -36,7 +36,7 @@ from tqdm import tqdm, trange
 from transformers import T5ForConditionalGeneration, T5ForConditionalGeneration
 from transformers import (T5Tokenizer, AutoTokenizer, CONFIG_NAME,
                          WEIGHTS_NAME, AdamW, get_linear_schedule_with_warmup)
-from utils import is_equal, clean_text, is_equal_svamp
+from utils import is_equal, clean_text, is_equal_svamp, prefix2infix
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
                     datefmt='%m/%d/%Y %H:%M:%S',
@@ -44,12 +44,15 @@ logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message
 logger = logging.getLogger(__name__)
 
 class TextDataset(Dataset):
-    def __init__(self, tokenizer, data_file, dataset_name, max_source_length, max_target_length):
+    def __init__(self, tokenizer, data_file, dataset_name,
+                 max_source_length, max_target_length,
+                 eqn_order):
         self.max_source_length = max_source_length
         self.max_target_length = max_target_length
         self.data_file = data_file
         self.tokenizer = tokenizer
         self.dataset_name = dataset_name
+        self.eqn_order = eqn_order
         self.features = {}
         self.prepare_data()
 
@@ -75,6 +78,8 @@ class TextDataset(Dataset):
             # read df line by line and access the columns by name
             for i, row in tqdm(enumerate(df.itertuples()), desc="Prepare train data"):
                 goal, proof = row.Question, row.Equation
+                if self.eqn_order == "infix":
+                    proof = prefix2infix(proof.split(" "))
                 self.store_feature(i, goal, proof)
         else:
             with open(self.data_file, encoding="utf-8") as f:
@@ -102,7 +107,8 @@ def train(args, tokenizer, device):
     """ Train the model """
 
     train_dataset = TextDataset(tokenizer, args.train_file, args.dataset_name,
-                                args.max_source_length, args.max_target_length)
+                                args.max_source_length, args.max_target_length,
+                                args.eqn_order)
 
     if args.dataset_name == "svamp":
         valid_lines = pd.read_csv(args.valid_file, sep=',')
@@ -170,7 +176,9 @@ def train(args, tokenizer, device):
     train_iterator = trange(int(args.num_train_epochs), desc="Epoch")
     set_seed(args)  # Added here for reproducibility (even between python 2 and 3)
 
-    best_valid_acc = best_valid_epoch = test_acc = 0
+    best_valid_acc = best_valid_epoch = 0
+    test_acc = {(k+1): 0 for k in range(args.num_seq)}
+
     for _ in train_iterator:
         epoch += 1
         epoch_iterator = tqdm(train_dataloader, desc="Iteration")
@@ -214,7 +222,8 @@ def train(args, tokenizer, device):
             result['global_step'] = global_step
             result['epoch'] = epoch
             test_start_time = time.time()
-            valid_acc, valid_total = test(model, tokenizer, valid_lines, args.dataset_name)
+            valid_acc, valid_total = test(model, tokenizer, valid_lines,
+                                          args.dataset_name, eqn_order=args.eqn_order)
             test_end_time = time.time()
             valid_acc = valid_acc[1] / valid_total # Always use the first class as the positive class 
             result['valid_acc'] = valid_acc
@@ -224,7 +233,10 @@ def train(args, tokenizer, device):
             if valid_acc > best_valid_acc:
                 best_valid_acc = valid_acc
                 best_valid_epoch = epoch
-                test_acc, test_total = test(model, tokenizer, test_lines, args.dataset_name, num_return_sequences=args.num_seq)
+                test_acc, test_total = test(model, tokenizer, test_lines,
+                                            args.dataset_name,
+                                            num_return_sequences=args.num_seq,
+                                            eqn_order=args.eqn_order)
                 for k, acc in test_acc.items():
                     test_acc[k] = acc / test_total
 
@@ -269,7 +281,8 @@ def add_to_topk_accuracylist(candidate_number, topk_acc_list, topk):
         topk_acc_list[k+1] += 1
     return topk_acc_list
 
-def test(model, tokenizer, lines, dataset_name, num_beam=10, num_return_sequences=1):
+def test(model, tokenizer, lines, dataset_name,
+        num_beam=10, num_return_sequences=1, eqn_order="prefix"):
     model = model.module if hasattr(model, "module") else model
     model.eval()
     acc = 0
@@ -281,7 +294,7 @@ def test(model, tokenizer, lines, dataset_name, num_beam=10, num_return_sequence
             problem, label, numbers = row.Question, row.Equation, row.Numbers
             text = inference(model, tokenizer, problem, num_beam, num_return_sequences)
             for candidatenum, candidate in enumerate(text):
-                if is_equal_svamp(label, candidate, numbers.split()):
+                if is_equal_svamp(label, candidate, numbers.split(), order=eqn_order):
                     acc += 1
                     topk_acc_list = add_to_topk_accuracylist(candidatenum, topk_acc_list, num_return_sequences)
                     break
@@ -413,10 +426,12 @@ if __name__ == "__main__":
                         help='Use svamp/math23k dataset.', required=True)
     parser.add_argument('--num_seq', type=int, default=10, required=False,
                         help='Number of sequences to generate for topk calculation')
+    parser.add_argument('--eqn_order', default='prefix', type=str, required=True,
+                        help='Order of equation to generate')
     args = parser.parse_args()
 
-    project_name = f"{args.model_path}-t5-{args.dataset_name}-src{args.max_source_length}-tgt{args.max_target_length}"
-    wandb.init(project=project_name, entity="thesismurali-self")
+    project_name = f"{args.model_path}-t5-{args.dataset_name}-{args.eqn_order}-src{args.max_source_length}-tgt{args.max_target_length}"
+    wandb.init(project=project_name, entity="thesismurali-self", mode="disabled")
     wandb.config = vars(args)
     args.rank = int(os.getenv('RANK', '0'))
     args.world_size = int(os.getenv("WORLD_SIZE", '1'))

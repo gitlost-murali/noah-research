@@ -49,12 +49,15 @@ def batch_test(model, tokenizer,  device, lines, dataset_name,
                     inputs[k] = v.to(device)
 
             # batch inference
-            texts = batch_inference(model, tokenizer, inputs["lines"],
+            texts = batch_inference(model, tokenizer, device, inputs["lines"],
                                    num_beam, num_return_sequences, max_target_length)
 
             labels, numbers_list = inputs["labels"], inputs["numbers"]
             for candidatenum, (label, numbers, candidates_list) in enumerate(zip(labels, numbers_list, texts)):
                 for candidate in candidates_list:
+                    print("="*20)
+                    print(label, "|", candidate, "|", acc, acc/len(test_dataloader))
+                    print("="*20)
                     if is_equal_svamp(label, candidate, numbers.split(), order=eqn_order):
                         acc += 1
                         topk_acc_list = add_to_topk_accuracylist(candidatenum, topk_acc_list, num_return_sequences)
@@ -77,7 +80,7 @@ def batch_test(model, tokenizer,  device, lines, dataset_name,
                     inputs[k] = v.to(device)
 
             # batch inference
-            texts = batch_inference(model, tokenizer, inputs["lines"],
+            texts = batch_inference(model, tokenizer, device, inputs["lines"],
                                    num_beam, num_return_sequences, max_target_length)
 
             labels = inputs["labels"]
@@ -89,10 +92,10 @@ def batch_test(model, tokenizer,  device, lines, dataset_name,
                         break
     return topk_acc_list, total
 
-def batch_inference(model, tokenizer, problem, num_beam=10, num_return_sequences=1, max_target_length=100, SRC_LANG="en_XX"):
+def batch_inference(model, tokenizer, device, problem, num_beam=10, num_return_sequences=1, max_target_length=100, SRC_LANG="en_XX"):
     batch = tokenizer.prepare_seq2seq_batch(problem, src_lang=SRC_LANG, return_tensors="pt")
     for k,v in batch.items():
-        batch[k] = v.cuda()
+        batch[k] = v.to(device)
 
     # extra_details = {"decoder_start_token_id":tokenizer.lang_code_to_id["en_XX"]}
     text = model.generate(**batch,

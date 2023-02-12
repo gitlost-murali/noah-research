@@ -144,3 +144,9 @@ def clean_text(text):
             if bracket < 0:
                 return " ".join(splited_text[:i])
     return " ".join(splited_text)
+
+# function to calculate top-k accuracy given the index at which answer is correct
+def add_to_topk_accuracylist(candidate_number, topk_acc_list, topk):
+    for k in range(candidate_number, topk, 1):
+        topk_acc_list[k+1] += 1
+    return topk_acc_list

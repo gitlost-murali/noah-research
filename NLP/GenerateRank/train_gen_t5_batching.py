@@ -242,7 +242,7 @@ def train(args, tokenizer, device):
             if valid_acc > best_valid_acc:
                 best_valid_acc = valid_acc
                 best_valid_epoch = epoch
-                test_acc, test_total = batch_test(model, tokenizer = tokenizer, lines = valid_lines,
+                test_acc, test_total = batch_test(model, tokenizer = tokenizer, lines = test_lines,
                                          device = device, num_return_sequences=args.num_seq,
                                           dataset_name = args.dataset_name, eqn_order=args.eqn_order,
                                           batch_size=args.per_gpu_train_batch_size)

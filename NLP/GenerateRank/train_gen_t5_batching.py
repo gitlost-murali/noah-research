@@ -50,13 +50,14 @@ logger = logging.getLogger(__name__)
 class TextDataset(Dataset):
     def __init__(self, tokenizer, data_file, dataset_name,
                  max_source_length, max_target_length,
-                 eqn_order):
+                 eqn_order, data_limit):
         self.max_source_length = max_source_length
         self.max_target_length = max_target_length
         self.data_file = data_file
         self.tokenizer = tokenizer
         self.dataset_name = dataset_name
         self.eqn_order = eqn_order
+        self.data_limit = data_limit
         self.features = {}
         self.prepare_data()
 
@@ -85,6 +86,7 @@ class TextDataset(Dataset):
                 if self.eqn_order == "infix":
                     proof = prefix2infix(proof.split(" "))
                 self.store_feature(i, goal, proof)
+                if self.data_limit > 0 and i > self.data_limit: break
         else:
             with open(self.data_file, encoding="utf-8") as f:
                 lines = f.readlines()
@@ -92,6 +94,7 @@ class TextDataset(Dataset):
                 items = line.strip().split('\t')
                 goal, proof = items[0], items[1]
                 self.store_feature(i, goal, proof)
+                if self.data_limit > 0 and i > self.data_limit: break
 
     def __len__(self):
         return len(self.features)
@@ -112,7 +115,7 @@ def train(args, tokenizer, device):
 
     train_dataset = TextDataset(tokenizer, args.train_file, args.dataset_name,
                                 args.max_source_length, args.max_target_length,
-                                args.eqn_order)
+                                args.eqn_order, args.data_limit)
 
     if args.dataset_name == "svamp":
         valid_lines = pd.read_csv(args.valid_file, sep=',')
@@ -431,9 +434,11 @@ if __name__ == "__main__":
                         help='Number of sequences to generate for topk calculation')
     parser.add_argument('--eqn_order', default='prefix', type=str, required=True,
                         help='Order of equation to generate')
+    parser.add_argument('--data_limit', default=-1, type=int, required=True,
+                        help='How much data to use for training. -1 for all data.')
     args = parser.parse_args()
 
-    project_name = f"{Path(args.model_path).name}-t5-{args.dataset_name}-{args.eqn_order}-src{args.max_source_length}-tgt{args.max_target_length}"
+    project_name = f"{Path(args.model_path).name}-t5-{args.dataset_name}-n{args.data_limit}-{args.eqn_order}-src{args.max_source_length}-tgt{args.max_target_length}"
 
     current_time = datetime.datetime.now()
     timestamp = current_time.strftime("%b_%d_%Y")

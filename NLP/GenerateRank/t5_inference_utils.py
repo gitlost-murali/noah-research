@@ -56,7 +56,7 @@ def batch_test(model, tokenizer,  device, lines, dataset_name,
             for candidatenum, (label, numbers, candidates_list) in enumerate(zip(labels, numbers_list, texts)):
                 for candidate in candidates_list:
                     print("="*20)
-                    print(label, "|", candidate, "|", acc, acc/len(test_dataloader))
+                    print(f"label-{label}|candidate-{candidate}|counts-{acc},acc-{acc/len(test_dataloader)}")
                     print("="*20)
                     if is_equal_svamp(label, candidate, numbers.split(), order=eqn_order):
                         acc += 1

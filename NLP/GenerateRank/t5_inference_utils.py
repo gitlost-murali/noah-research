@@ -36,8 +36,10 @@ def batch_test(model, tokenizer,  device, lines, dataset_name,
     if dataset_name == "svamp":
         # apply prefix2infix function to all labels
         if eqn_order == "infix":
-            lines.Equation = lines.Equation.apply(lambda x: prefix2infix(x.split(" ")))
-        problems, labels, numbers_list = lines.Question, lines.Equation, lines.Numbers
+            equations = lines.Equation.apply(lambda x: prefix2infix(x.split(" ")))
+        else:
+            equations = lines.Equation
+        problems, labels, numbers_list = lines.Question, equations, lines.Numbers
         test_dataset = InferDataset(problems, labels, numbers=numbers_list)
         test_dataloader = torch.utils.data.DataLoader(test_dataset,
                                                         batch_size=batch_size,

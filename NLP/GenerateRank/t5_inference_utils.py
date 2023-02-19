@@ -56,8 +56,8 @@ def batch_test(model, tokenizer,  device, lines, dataset_name,
                                    num_beam, num_return_sequences, max_target_length)
 
             labels, numbers_list = inputs["labels"], inputs["numbers"]
-            for candidatenum, (label, numbers, candidates_list) in enumerate(zip(labels, numbers_list, texts)):
-                for candidate in candidates_list:
+            for _, (label, numbers, candidates_list) in enumerate(zip(labels, numbers_list, texts)):
+                for candidatenum, candidate in enumerate(candidates_list):
                     if is_equal_svamp(label, candidate, numbers.split(), order=eqn_order):
                         acc += 1
                         topk_acc_list = add_to_topk_accuracylist(candidatenum, topk_acc_list, num_return_sequences)

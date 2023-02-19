@@ -30,6 +30,7 @@ import numpy as np
 import pandas as pd
 import torch
 
+import json
 import datetime
 import wandb
 
@@ -228,7 +229,7 @@ def train(args, tokenizer, device):
             result['global_step'] = global_step
             result['epoch'] = epoch
             test_start_time = time.time()
-            valid_acc, valid_total = test(model, tokenizer, valid_lines,
+            valid_acc, valid_total, _ = test(model, tokenizer, device, valid_lines,
                                           args.dataset_name, eqn_order=args.eqn_order)
             test_end_time = time.time()
             valid_acc = valid_acc[1] / valid_total # Always use the first class as the positive class 
@@ -239,12 +240,18 @@ def train(args, tokenizer, device):
             if valid_acc > best_valid_acc:
                 best_valid_acc = valid_acc
                 best_valid_epoch = epoch
-                test_acc, test_total = test(model, tokenizer, test_lines,
+                test_acc, test_total, test_preds = test(model, tokenizer, device, test_lines,
                                             args.dataset_name,
                                             num_return_sequences=args.num_seq,
                                             eqn_order=args.eqn_order)
                 for k, acc in test_acc.items():
                     test_acc[k] = acc / test_total
+
+                # store test_preds into a json file
+                if args.debug_preds:
+                    debug_file = os.path.join(args.output_dir,"debug-preds.json")
+                    with open(debug_file, "w", encoding="utf8") as fh:
+                        json.dump(test_preds, fh, indent=4)
 
                 logging.info("** ** * Saving fine-tuned model ** ** * ")
                 # Only save the model it-self
@@ -287,41 +294,50 @@ def add_to_topk_accuracylist(candidate_number, topk_acc_list, topk):
         topk_acc_list[k+1] += 1
     return topk_acc_list
 
-def test(model, tokenizer, lines, dataset_name,
+def test(model, tokenizer, device, lines, dataset_name,
         num_beam=10, num_return_sequences=1, eqn_order="prefix"):
     model = model.module if hasattr(model, "module") else model
     model.eval()
-    acc = 0
+    acc = 0 # redundant and not used
     total = len(lines)
     topk_acc_list = {(k+1): 0 for k in range(num_return_sequences)}
+
+    preds = []
 
     if dataset_name == "svamp":
         for i, row in tqdm(enumerate(lines.itertuples()), desc="Inferring..."):
             problem, label, numbers = row.Question, row.Equation, row.Numbers
             if eqn_order == "infix":
                 label = prefix2infix(label.split(" "))
-            text = inference(model, tokenizer, problem, num_beam, num_return_sequences)
+            text = inference(model, tokenizer, device, problem, num_beam, num_return_sequences)
             for candidatenum, candidate in enumerate(text):
                 if is_equal_svamp(label, candidate, numbers.split(), order=eqn_order):
                     acc += 1
                     topk_acc_list = add_to_topk_accuracylist(candidatenum, topk_acc_list, num_return_sequences)
                     break
+
+            preds.append({"gt": label, "preds": text})
+        assert len(lines) == len(preds)
     else:
         for i, line in enumerate(tqdm(lines)):
             problem, label = line.strip().split("\t")
-            text = inference(model, tokenizer, problem, num_beam, num_return_sequences)
+            text = inference(model, tokenizer, device, problem, num_beam, num_return_sequences)
             text = [clean_text(t) for t in text]
             for candidatenum, candidate in enumerate(text):
                 if is_equal(label, candidate):
                     acc += 1
                     topk_acc_list = add_to_topk_accuracylist(candidatenum, topk_acc_list, num_return_sequences)
                     break
-    return topk_acc_list, total
 
-def inference(model, tokenizer, problem, num_beam=10, num_return_sequences=1):
+            preds.append({"gt": label, "preds": text})
+        assert len(lines) == len(preds)
+
+    return topk_acc_list, total, preds
+
+def inference(model, tokenizer, device, problem, num_beam=10, num_return_sequences=1):
     batch = tokenizer.prepare_seq2seq_batch(problem, src_lang=SRC_LANG, return_tensors="pt")
     for k,v in batch.items():
-        batch[k] = v.cuda()
+        batch[k] = v.to(device)
 
     # extra_details = {"decoder_start_token_id":tokenizer.lang_code_to_id["en_XX"]}
     text = model.generate(**batch,
@@ -438,6 +454,8 @@ if __name__ == "__main__":
                         help='Order of equation to generate')
     parser.add_argument('--data_limit', default=-1, type=int, required=True,
                         help='How much data to use for training. -1 for all data.')
+    parser.add_argument('--debug_preds', default=False, action='store_true',
+                        help='Store predictions in a json file or not')
     args = parser.parse_args()
 
     project_name = f"{Path(args.model_path).name}-t5-{args.dataset_name}-n{args.data_limit}-{args.eqn_order}-src{args.max_source_length}-tgt{args.max_target_length}"

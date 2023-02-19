@@ -32,6 +32,7 @@ def batch_test(model, tokenizer,  device, lines, dataset_name,
     acc = 0
     total = len(lines)
     topk_acc_list = {(k+1): 0 for k in range(num_return_sequences)}
+    preds = []
 
     if dataset_name == "svamp":
         # apply prefix2infix function to all labels
@@ -61,6 +62,10 @@ def batch_test(model, tokenizer,  device, lines, dataset_name,
                         acc += 1
                         topk_acc_list = add_to_topk_accuracylist(candidatenum, topk_acc_list, num_return_sequences)
                         break
+
+                preds.append({"gt": label, "preds": candidates_list})
+        assert len(preds)==len(test_dataset)
+
     else:
         problems = labels = []
         for i, line in enumerate(tqdm(lines)):
@@ -89,7 +94,10 @@ def batch_test(model, tokenizer,  device, lines, dataset_name,
                         acc += 1
                         topk_acc_list = add_to_topk_accuracylist(candidatenum, topk_acc_list, num_return_sequences)
                         break
-    return topk_acc_list, total
+                preds.append({"gt": label, "preds": candidates_list})
+        
+        assert len(preds)==len(test_dataset)
+    return topk_acc_list, total, preds
 
 def batch_inference(model, tokenizer, device, problem, num_beam=10, num_return_sequences=1, max_target_length=100, SRC_LANG="en_XX"):
     batch = tokenizer.prepare_seq2seq_batch(problem, src_lang=SRC_LANG, return_tensors="pt")

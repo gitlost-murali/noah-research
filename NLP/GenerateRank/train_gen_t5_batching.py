@@ -23,6 +23,7 @@ import argparse
 import logging
 import os
 
+import json
 import random
 import time
 
@@ -229,7 +230,7 @@ def train(args, tokenizer, device):
             result['global_step'] = global_step
             result['epoch'] = epoch
             test_start_time = time.time()
-            valid_acc, valid_total = batch_test(model, tokenizer = tokenizer, lines = valid_lines,
+            valid_acc, valid_total, _ = batch_test(model, tokenizer = tokenizer, lines = valid_lines,
                                          device = device, num_return_sequences=1, # for valid, no topk needed
                                           dataset_name = args.dataset_name, eqn_order=args.eqn_order,
                                           batch_size=args.per_gpu_train_batch_size)
@@ -242,12 +243,18 @@ def train(args, tokenizer, device):
             if valid_acc > best_valid_acc:
                 best_valid_acc = valid_acc
                 best_valid_epoch = epoch
-                test_acc, test_total = batch_test(model, tokenizer = tokenizer, lines = test_lines,
+                test_acc, test_total, test_preds = batch_test(model, tokenizer = tokenizer, lines = test_lines,
                                          device = device, num_return_sequences=args.num_seq,
                                           dataset_name = args.dataset_name, eqn_order=args.eqn_order,
                                           batch_size=args.per_gpu_train_batch_size)
                 for k, acc in test_acc.items():
                     test_acc[k] = acc / test_total
+
+                # store test_preds into a json file
+                if args.debug_preds:
+                    debug_file = os.path.join(args.output_dir,"debug-preds.json")
+                    with open(debug_file, "w", encoding="utf8") as fh:
+                        json.dump(test_preds, fh, indent=4)
 
                 logging.info("** ** * Saving fine-tuned model ** ** * ")
                 # Only save the model it-self
@@ -436,6 +443,8 @@ if __name__ == "__main__":
                         help='Order of equation to generate')
     parser.add_argument('--data_limit', default=-1, type=int, required=True,
                         help='How much data to use for training. -1 for all data.')
+    parser.add_argument('--debug_preds', default=False, action='store_true',
+                        help='Store predictions in a json file or not')
     args = parser.parse_args()
 
     project_name = f"{Path(args.model_path).name}-t5-{args.dataset_name}-n{args.data_limit}-{args.eqn_order}-src{args.max_source_length}-tgt{args.max_target_length}"

@@ -14,6 +14,7 @@ def extract_equation(item, eqn_order):
         raise ValueError("Unknown equation order: {}".format(eqn_order))
     
     # convert temp variables to unique numbers
+    proof = proof.replace("x = ","")
     proof = convert_temp_vars(proof)
     return goal, proof, numbers
 
@@ -31,6 +32,7 @@ def extract_equation_svamp(item, eqn_order):
         proof = " ".join(proof)
     else:
         raise ValueError("Unknown equation order: {}".format(eqn_order))
+    proof = proof.replace("x = ","")
     return goal, proof, numbers
 
 def extract_text_label(item, eqn_order):

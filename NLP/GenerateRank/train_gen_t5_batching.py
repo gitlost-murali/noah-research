@@ -229,13 +229,19 @@ def train(args, tokenizer, device):
             result['global_step'] = global_step
             result['epoch'] = epoch
             test_start_time = time.time()
-            valid_acc, valid_total, _ = batch_test(model, tokenizer = tokenizer, lines = valid_lines,
+            valid_acc, valid_total, valid_preds = batch_test(model, tokenizer = tokenizer, lines = valid_lines,
                                          device = device, num_return_sequences=1, # for valid, no topk needed
                                           dataset_name = args.dataset_name, eqn_order=args.eqn_order,
                                           batch_size=args.per_gpu_train_batch_size)
             test_end_time = time.time()
             valid_acc = valid_acc[1] / valid_total # Always use the first class as the positive class 
             result['valid_acc'] = valid_acc
+
+            # store test_preds into a json file
+            if args.debug_preds:
+                debug_file = os.path.join(args.output_dir,"debug-valid-preds.json")
+                with open(debug_file, "w", encoding="utf8") as fh:
+                    json.dump(valid_preds, fh, indent=4)
 
             wandb.log(result)
 

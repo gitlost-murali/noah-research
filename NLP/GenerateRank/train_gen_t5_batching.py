@@ -35,12 +35,14 @@ import datetime
 import wandb
 
 from pathlib import Path
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import Dataset
 from tqdm import tqdm, trange
 from transformers import T5ForConditionalGeneration, T5ForConditionalGeneration
 from transformers import (T5Tokenizer, AutoTokenizer, CONFIG_NAME,
                          WEIGHTS_NAME, AdamW, get_linear_schedule_with_warmup)
-from utils import is_equal, clean_text, is_equal_svamp, prefix2infix, add_to_topk_accuracylist
+from utils import read_json
+from data_utils import extract_text_label
+
 from t5_inference_utils import batch_test
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
@@ -78,14 +80,11 @@ class TextDataset(Dataset):
         self.features[indx] = batch_encoding
 
     def prepare_data(self):
-        if self.dataset_name == "svamp":
-            # read df line by line and access the columns by index
-            df = pd.read_csv(self.data_file, sep=',')
-            # read df line by line and access the columns by name
-            for i, row in tqdm(enumerate(df.itertuples()), desc="Prepare train data"):
-                goal, proof = row.Question, row.Equation
-                if self.eqn_order == "infix":
-                    proof = prefix2infix(proof.split(" "))
+        if self.dataset_name == "mawps" or self.dataset_name == "svamp":
+            # open a json file and read it where text is in "text" key and infix equation is in "template_equ" key
+            data = read_json(self.data_file)
+            for i, item in enumerate(tqdm(data, desc="Prepare train data")):
+                goal, proof, numbers = extract_text_label(item, self.eqn_order)
                 self.store_feature(i, goal, proof)
                 if self.data_limit > 0 and i > self.data_limit: break
         else:
@@ -118,9 +117,9 @@ def train(args, tokenizer, device):
                                 args.max_source_length, args.max_target_length,
                                 args.eqn_order, args.data_limit)
 
-    if args.dataset_name == "svamp":
-        valid_lines = pd.read_csv(args.valid_file, sep=',')
-        test_lines = pd.read_csv(args.test_file, sep=',')
+    if args.dataset_name == "svamp" or args.dataset_name == "mawps":
+        valid_lines = read_json(args.valid_file)
+        test_lines = read_json(args.test_file)
     else:
         with open(args.valid_file) as f:
             valid_lines = f.readlines()
@@ -291,51 +290,6 @@ def train(args, tokenizer, device):
 
     return global_step, tr_loss / global_step
 
-
-def test(model, tokenizer, lines, dataset_name,
-        num_beam=10, num_return_sequences=1, eqn_order="prefix"):
-    model = model.module if hasattr(model, "module") else model
-    model.eval()
-    acc = 0
-    total = len(lines)
-    topk_acc_list = {(k+1): 0 for k in range(num_return_sequences)}
-
-    if dataset_name == "svamp":
-        for i, row in tqdm(enumerate(lines.itertuples()), desc="Inferring..."):
-            problem, label, numbers = row.Question, row.Equation, row.Numbers
-            if eqn_order == "infix":
-                label = prefix2infix(label.split(" "))
-            text = inference(model, tokenizer, problem, num_beam, num_return_sequences)
-            for candidatenum, candidate in enumerate(text):
-                if is_equal_svamp(label, candidate, numbers.split(), order=eqn_order):
-                    acc += 1
-                    topk_acc_list = add_to_topk_accuracylist(candidatenum, topk_acc_list, num_return_sequences)
-                    break
-    else:
-        for i, line in enumerate(tqdm(lines)):
-            problem, label = line.strip().split("\t")
-            text = inference(model, tokenizer, problem, num_beam, num_return_sequences)
-            text = [clean_text(t) for t in text]
-            for candidatenum, candidate in enumerate(text):
-                if is_equal(label, candidate):
-                    acc += 1
-                    topk_acc_list = add_to_topk_accuracylist(candidatenum, topk_acc_list, num_return_sequences)
-                    break
-    return topk_acc_list, total
-
-def inference(model, tokenizer, problem, num_beam=10, num_return_sequences=1):
-    batch = tokenizer.prepare_seq2seq_batch(problem, src_lang=SRC_LANG, return_tensors="pt")
-    for k,v in batch.items():
-        batch[k] = v.cuda()
-
-    # extra_details = {"decoder_start_token_id":tokenizer.lang_code_to_id["en_XX"]}
-    text = model.generate(**batch,
-                            num_beams=num_beam, early_stopping=True, max_length=100,
-                            num_return_sequences=num_return_sequences)
-
-    text = tokenizer.batch_decode(text, skip_special_tokens=True)
-    assert len(text) == num_return_sequences
-    return text
 
 def main(args):
     global SRC_LANG, TGT_LANG

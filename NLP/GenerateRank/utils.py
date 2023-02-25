@@ -15,6 +15,7 @@
 import random
 import math
 import re
+import json
 
 def remove_space_and_bracket(text):
     text = text.strip().replace(" ", "")
@@ -150,3 +151,47 @@ def add_to_topk_accuracylist(candidate_number, topk_acc_list, topk):
     for k in range(candidate_number, topk, 1):
         topk_acc_list[k+1] += 1
     return topk_acc_list
+
+# function to convert infix expression to postfix expression
+def infix2postfix(infix: List[str]) -> List[str]:
+    """Example: 
+    infix = ['(', '1', '+', '2', ')']
+    postfix = ['1', '2', '+']"""
+    stack = []
+    postfix = []
+    for i in infix:
+        if i == '(':
+            stack.append(i)
+        elif i == ')':
+            while stack[-1] != '(':
+                postfix.append(stack.pop())
+            stack.pop()
+        elif i in ['+', '-', '*', '/']:
+            while stack and stack[-1] != '(' and stack[-1] in ['+', '-', '*', '/']:
+                postfix.append(stack.pop())
+            stack.append(i)
+        else:
+            postfix.append(i)
+    while stack:
+        postfix.append(stack.pop())
+    return postfix
+
+def read_json(data_file):
+    with open(data_file, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    return data
+
+# function to convert infix expression to prefix expression
+def infix2prefix(infix: List[str]) -> List[str]:
+    """Example: 
+    infix = ['(', '1', '+', '2', ')']
+    prefix = ['+', '1', '2']"""
+    infix.reverse()
+    for i in range(len(infix)):
+        if infix[i] == '(':
+            infix[i] = ')'
+        elif infix[i] == ')':
+            infix[i] = '('
+    prefix = infix2postfix(infix)
+    prefix.reverse()
+    return prefix

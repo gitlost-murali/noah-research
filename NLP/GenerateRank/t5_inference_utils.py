@@ -1,5 +1,6 @@
 
-from utils import clean_text, prefix2infix, add_to_topk_accuracylist, is_equal, is_equal_svamp
+from utils import clean_text, add_to_topk_accuracylist, is_equal, is_equal_svamp
+from data_utils import extract_text_label
 from torch.utils.data import Dataset
 from tqdm import tqdm
 import time
@@ -34,17 +35,18 @@ def batch_test(model, tokenizer,  device, lines, dataset_name,
     topk_acc_list = {(k+1): 0 for k in range(num_return_sequences)}
     preds = []
 
-    if dataset_name == "svamp":
+    if dataset_name == "svamp" or dataset_name == "mawps":
         # apply prefix2infix function to all labels
-        if eqn_order == "infix":
-            equations = lines.Equation.apply(lambda x: prefix2infix(x.split(" ")))
-        else:
-            equations = lines.Equation
-        problems, labels, numbers_list = lines.Question, equations, lines.Numbers
+        problems, labels, numbers_list = [], [], []
+        for item in lines:
+            prob, label, numbers = extract_text_label(item, eqn_order)
+            problems.append(prob)
+            labels.append(label)
+            numbers_list.append(numbers)
         test_dataset = InferDataset(problems, labels, numbers=numbers_list)
-        test_dataloader = torch.utils.data.DataLoader(test_dataset,
+        test_dataloader = torch.utils.data.DataLoader(dataset = test_dataset,
                                                         batch_size=batch_size,
-                                                        drop_last=False)
+                                                        drop_last=False )
         epoch_iterator = tqdm(test_dataloader, desc="Inferring...")
         for step, inputs in enumerate(epoch_iterator):
             for k, v in inputs.items():

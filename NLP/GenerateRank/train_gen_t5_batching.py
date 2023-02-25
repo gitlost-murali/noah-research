@@ -405,6 +405,8 @@ if __name__ == "__main__":
                         help='How much data to use for training. -1 for all data.')
     parser.add_argument('--debug_preds', default=False, action='store_true',
                         help='Store predictions in a json file or not')
+    parser.add_argument('--fold', default=-1, type=int,
+                        help='Which fold to use for training. -1 for all data/SVAMP')
     args = parser.parse_args()
 
     project_name = f"{Path(args.model_path).name}-t5-{args.dataset_name}-n{args.data_limit}-{args.eqn_order}-src{args.max_source_length}-tgt{args.max_target_length}"
@@ -413,7 +415,11 @@ if __name__ == "__main__":
     timestamp = current_time.strftime("%b_%d_%Y")
     args.output_dir = Path(args.output_dir).parent/f"{Path(args.output_dir).stem}_{timestamp}_{args.dataset_name}_{args.eqn_order}"
 
-    wandb.init(project=project_name, entity="thesismurali-self")
+    if args.fold != -1:
+        wandb_dict = {"display_name": f"fold-{args.fold}-{timestamp}"}
+    else:
+        wandb_dict = {}
+    wandb.init(project=project_name, entity="thesismurali-self", **wandb_dict)
     wandb.config = vars(args)
     args.rank = int(os.getenv('RANK', '0'))
     args.world_size = int(os.getenv("WORLD_SIZE", '1'))

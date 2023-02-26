@@ -416,7 +416,7 @@ if __name__ == "__main__":
     args.output_dir = Path(args.output_dir).parent/f"{Path(args.output_dir).stem}_{timestamp}_{args.dataset_name}_{args.eqn_order}"
 
     if args.fold != -1:
-        wandb_dict = {"display_name": f"fold-{args.fold}-{timestamp}"}
+        wandb_dict = {"name": f"fold-{args.fold}-{timestamp}"}
     else:
         wandb_dict = {}
     wandb.init(project=project_name, entity="thesismurali-self", **wandb_dict)

@@ -52,7 +52,7 @@ def convert_temp_vars(string):
     temp_vars = re.findall(r'temp_[a-z]', string)
 
     # create a dictionary mapping each temp variable to a unique number
-    var_map = {var: f'number_{i}' for i, var in enumerate(temp_vars)}
+    var_map = {var: f'number{i}' for i, var in enumerate(temp_vars)}
 
     # replace each temp variable with its corresponding number
     for var, num in var_map.items():

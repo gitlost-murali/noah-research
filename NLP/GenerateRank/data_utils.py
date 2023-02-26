@@ -8,19 +8,19 @@ def extract_equation(item, eqn_order):
     elif eqn_order == "postfix":
         proof = item["post_equ"]
     elif eqn_order == "prefix":
-        proof = infix2postfix(item["template_equ"].replace("x = ",""))
+        proof = infix2postfix(item["template_equ"].lower().replace("x = ",""))
         proof = " ".join(proof)
     else:
         raise ValueError("Unknown equation order: {}".format(eqn_order))
     
-    proof = proof.replace("x = ","")
+    proof = proof.lower().replace("x = ","")
     # convert temp variables to unique numbers
     proof = convert_temp_vars(proof)
     return goal, proof, numbers
 
 def extract_equation_svamp(item, eqn_order):
     goal = item["Question"]
-    infix_eqn = item["Equation"].replace("x = ","")
+    infix_eqn = item["Equation"].lower().replace("x = ","")
     numbers = item["Numbers"]
     if eqn_order == "infix":
         proof = infix_eqn
@@ -32,7 +32,7 @@ def extract_equation_svamp(item, eqn_order):
         proof = " ".join(proof)
     else:
         raise ValueError("Unknown equation order: {}".format(eqn_order))
-    proof = proof.replace("x = ","")
+    proof = proof.lower().replace("x = ","")
     return goal, proof, numbers
 
 def extract_text_label(item, eqn_order):

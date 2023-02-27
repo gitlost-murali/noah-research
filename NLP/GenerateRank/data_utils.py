@@ -1,4 +1,4 @@
-from utils import infix2postfix, infix2prefix
+from utils import infix2postfix, infix2prefix, prefix2infix
 
 def extract_equation(item, eqn_order):
     goal= item["text"]
@@ -8,7 +8,7 @@ def extract_equation(item, eqn_order):
     elif eqn_order == "postfix":
         proof = item["post_equ"]
     elif eqn_order == "prefix":
-        proof = infix2postfix(item["template_equ"].lower().replace("x = ",""))
+        proof = infix2prefix(item["template_equ"].lower().replace("x = ","").split(" "))
         proof = " ".join(proof)
     else:
         raise ValueError("Unknown equation order: {}".format(eqn_order))
@@ -20,16 +20,16 @@ def extract_equation(item, eqn_order):
 
 def extract_equation_svamp(item, eqn_order):
     goal = item["Question"]
-    infix_eqn = item["Equation"].lower().replace("x = ","")
+    prefix_eqn = item["Equation"].lower().replace("x = ","")
     numbers = item["Numbers"]
-    if eqn_order == "infix":
-        proof = infix_eqn
+    if eqn_order == "prefix":
+        proof = prefix_eqn
     elif eqn_order == "postfix":
-        proof = infix2postfix(infix_eqn)
+        infix_eqn = prefix2infix(prefix_eqn.split(" "))
+        proof = infix2postfix(infix_eqn.split(" "))
         proof = " ".join(proof)
-    elif eqn_order == "prefix":
-        proof = infix2prefix(infix_eqn)
-        proof = " ".join(proof)
+    elif eqn_order == "infix":
+        proof = prefix2infix(prefix_eqn.split(" "))
     else:
         raise ValueError("Unknown equation order: {}".format(eqn_order))
     proof = proof.lower().replace("x = ","")

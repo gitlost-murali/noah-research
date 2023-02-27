@@ -60,10 +60,10 @@ def calculate_eval(equation, nums):
 from typing import List
 
 # Convert prefix expression to infix expression
-def prefix2infix(prefix: List[str]) -> List[str]:
+def prefix2infix(prefix: List[str]) -> str:
     """Example: 
     prefix = ['+', '1', '2']
-    infix = ['(', '1', '+', '2', ')']"""
+    infix = '( 1 + 2 )'"""
     stack = []
     for i in range(len(prefix)-1, -1, -1):
         if prefix[i] in ['+', '-', '*', '/']:

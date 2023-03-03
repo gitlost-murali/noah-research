@@ -52,14 +52,20 @@ def convert_temp_vars(string):
     Convert all temp variables in a string to unique numbers.
     ex: temp_a + temp_b + temp_c -> number_0 + number_1 + number_2
     """
-    # find all temp variables in the string
-    temp_vars = re.findall(r'temp_[a-z]', string)
+    # Split the input string by spaces to create a list of words
+    words = string.split()
+    # Use a list comprehension to map each temp_x word in the input string to its corresponding number
+    numbers = [f"number{ord(word[-1])-97}" if word.startswith("temp_") else word for word in words]
+    # Join the list of numbers into a single string, separated by spaces
+    output_string = ' '.join(numbers)
+    return output_string
 
-    # create a dictionary mapping each temp variable to a unique number
-    var_map = {var: f'number{i}' for i, var in enumerate(temp_vars)}
+def test_convert_string():
+    assert convert_temp_vars("temp_a") == "number0"
+    assert convert_temp_vars("temp_b temp_a temp_a temp_b") == "number1 number0 number0 number1"
+    assert convert_temp_vars("this is a test") == "this is a test"
+    assert convert_temp_vars("temp_z temp_y temp_z") == "number25 number24 number25"
+    assert convert_temp_vars("") == ""
 
-    # replace each temp variable with its corresponding number
-    for var, num in var_map.items():
-        string = string.replace(var, num)
-
-    return string
+if __name__ == "__main__":
+    test_convert_string()

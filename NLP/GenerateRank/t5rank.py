@@ -41,7 +41,7 @@ from transformers import (CONFIG_NAME, T5Config,
                          WEIGHTS_NAME, AdamW, get_linear_schedule_with_warmup)
 from utils import read_json
 from data_utils import extract_text_label
-from t5_inference_utils import InferDataset
+from t5_inference_utils import GeneralDataset
 from utils import is_equal, clean_text
 from exp_tree import corrupt_expression
 
@@ -183,11 +183,11 @@ def train(args, tokenizer, device):
             labels.append(proof)
             numbers_list.append(numbers)
             if args.data_limit > 0 and i > args.data_limit: break
-        raw_train_dataset = InferDataset(lines, labels, numbers_list)
+        raw_train_dataset = GeneralDataset(prob = lines, label = labels, numbers = numbers_list)
     else:
         with open(args.train_file) as f:
             raw_train_lines = f.readlines()
-        raw_train_dataset = LineDataset(raw_train_lines[:5])
+        raw_train_dataset = LineDataset(raw_train_lines)
 
     if args.distributed:
         raw_train_sampler = torch.utils.data.distributed.DistributedSampler(

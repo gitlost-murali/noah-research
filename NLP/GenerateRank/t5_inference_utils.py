@@ -25,6 +25,25 @@ class InferDataset(Dataset):
         # print all attributes
         return dict((k, self.__dict__[k][item]) for k in self.__dict__)
 
+class GeneralDataset(Dataset):
+    """
+    Ideally, should work with any dataset.
+    Just pass the inference lines to the constructor.
+    """
+    def __init__(self, **kwargs):
+        # create attribute for all kwargs
+        for k, v in kwargs.items():
+            setattr(self, k, v)
+
+    def __len__(self):
+        for k in self.__dict__:
+            return len(self.__dict__[k])
+        return -1
+
+    def __getitem__(self, item):
+        # print all attributes
+        return dict((k, self.__dict__[k][item]) for k in self.__dict__)
+
 def batch_test(model, tokenizer,  device, lines, dataset_name,
         num_beam=10, num_return_sequences=1, eqn_order="prefix",
         max_target_length=100, batch_size=8):

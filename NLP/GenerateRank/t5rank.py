@@ -573,8 +573,8 @@ def gen_test(model, device, tokenizer, lines, eqn_order,
         batch = tokenizer.prepare_seq2seq_batch(problem, src_lang=SRC_LANG, return_tensors="pt")
         for k,v in batch.items():
             batch[k] = v.to(device)
-        text = model.generate(**batch, decoder_start_token_id=tokenizer.lang_code_to_id["en_XX"],
-                              num_beams=num_beam, early_stopping=True, max_length=100, num_return_sequences=num_return_sequences)
+        text = model.generate(**batch, num_beams=num_beam, early_stopping=True,
+                            max_length=100, num_return_sequences=num_return_sequences)
 
         text = tokenizer.batch_decode(text, skip_special_tokens=True)
         text = [clean_text(t) for t in text]

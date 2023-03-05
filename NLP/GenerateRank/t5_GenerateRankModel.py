@@ -72,6 +72,10 @@ class MyT5ForSequenceClassificationAndGeneration(T5ForConditionalGeneration):
         self.model._init_weights(self.classification_head.dense)
         self.model._init_weights(self.classification_head.out_proj)
 
+    def generate(self, **kwargs):
+        # call generate function of the parent class T5ForConditionalGeneration
+        return self.model.generate(**kwargs)
+
     def forward(
         self,
         input_ids=None,

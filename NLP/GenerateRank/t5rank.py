@@ -450,7 +450,7 @@ def generate_sample(model, tokenizer, dataloader, device, output_samples_file, a
         for data in tqdm(dataloader):
             prob, label = data['prob'], data['label']
             gen_prob = prob
-            batch = tokenizer.prepare_seq2seq_batch(gen_prob, src_lang="zh_CN", return_tensors="pt")
+            batch = tokenizer.prepare_seq2seq_batch(gen_prob, return_tensors="pt")
             for k, v in batch.items():
                 batch[k] = v.to(device)
 
@@ -628,7 +628,8 @@ def main(args):
     try:
         tokenizer = T5Tokenizer.from_pretrained(args.model_path, do_lower_case=args.do_lower_case)
     except:
-        tokenizer = AutoTokenizer.from_pretrained("Salesforce/codet5-large-ntp-py", do_lower_case=args.do_lower_case)
+        raise ValueError("Tokenizer not found. Please check the model path.")
+        # tokenizer = AutoTokenizer.from_pretrained("Salesforce/codet5-large-ntp-py", do_lower_case=args.do_lower_case)
     new_tokens = [f"#{i}" for i in range(30)]
     tokenizer.add_tokens(new_tokens)
 

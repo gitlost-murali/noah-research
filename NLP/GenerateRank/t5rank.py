@@ -22,6 +22,9 @@ from __future__ import absolute_import, division, print_function
 import argparse
 import logging
 import os
+import wandb
+from pathlib import Path
+import datetime
 
 import random
 import sys
@@ -337,6 +340,8 @@ def train(args, tokenizer, device):
                         logger.info("  %s = %s", key, str(result[key]))
                         writer.write("%s = %s\n" % (key, str(result[key])))
                     writer.write("\n")
+                
+                wandb.log(result)
 
         # epoch end
         train_end_time = time.time()
@@ -410,6 +415,8 @@ def train(args, tokenizer, device):
                     logger.info("  %s = %s", key, str(result[key]))
                     writer.write("%s = %s\n" % (key, str(result[key])))
                 writer.write("\n")
+
+            wandb.log(result)
 
         if args.distributed: torch.distributed.barrier()
         # generate samples for revise
@@ -713,5 +720,19 @@ if __name__ == "__main__":
     args = parser.parse_args()
     args.rank = int(os.getenv('RANK', '0'))
     args.world_size = int(os.getenv("WORLD_SIZE", '1'))
+
+    project_name = f"reranker-{Path(args.output_dir).stem}-{args.dataset_name}-n{args.data_limit}-{args.eqn_order}-src{args.max_source_length}-tgt{args.max_target_length}"
+
+    current_time = datetime.datetime.now()
+    timestamp = current_time.strftime("%b_%d_%Y")
+    args.output_dir = Path(args.output_dir).parent/f"{Path(args.output_dir).stem}_{timestamp}_{args.dataset_name}_{args.eqn_order}"
+
+    if args.fold != -1:
+        wandb_dict = {"name": f"fold-{args.fold}-{timestamp}"}
+    else:
+        wandb_dict = {}
+    wandb.init(project=project_name, entity="thesismurali-self", **wandb_dict)
+    wandb.config = vars(args)
+
     main(args)
 

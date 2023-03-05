@@ -205,6 +205,10 @@ def train(args, tokenizer, device):
     valid_lines = read_json(args.valid_file)
     test_lines = read_json(args.test_file)
 
+    if args.debug_preds:
+        valid_lines = valid_lines[:args.data_limit]
+        test_lines = test_lines[:args.data_limit]
+
     print(f"load model from {args.model_path}")
     config = T5Config.from_pretrained(args.model_path)
     config.num_labels = 2

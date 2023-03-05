@@ -312,6 +312,8 @@ def train(args, tokenizer, device):
 
             mlm_loss = outputs["loss"]
             cls_loss = outputs["cls_loss"]
+            if torch.isnan(mlm_loss):
+                mlm_loss = None
 
             mlm_loss = mlm_loss.mean() if mlm_loss is not None else torch.tensor(0)  # mean() to average on multi-gpu parallel training
             cls_loss = cls_loss.mean() if cls_loss is not None else torch.tensor(0)  # mean() to average on multi-gpu parallel training

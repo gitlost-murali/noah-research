@@ -202,10 +202,8 @@ def train(args, tokenizer, device):
                                                        batch_size=args.per_gpu_train_batch_size,
                                                        drop_last=False,**extra_args)
 
-    with open(args.valid_file) as f:
-        valid_lines = f.readlines()
-    with open(args.test_file) as f:
-        test_lines = f.readlines()
+    valid_lines = read_json(args.valid_file)
+    test_lines = read_json(args.test_file)
 
     print(f"load model from {args.model_path}")
     config = T5Config.from_pretrained(args.model_path)
@@ -356,7 +354,8 @@ def train(args, tokenizer, device):
                 os.makedirs(test_output_dir)
             valid_output_file = os.path.join(test_output_dir, "output_gen.valid")
 
-            valid_acc, valid_acc_all, valid_total = gen_test(model, device, tokenizer, valid_lines, test_file=valid_output_file)
+            valid_acc, valid_acc_all, valid_total = gen_test(model, device, tokenizer, valid_lines, args.eqn_order,
+                                                             test_file=valid_output_file)
             valid_acc = valid_acc / valid_total
             valid_acc_all = valid_acc_all / valid_total
 
@@ -376,7 +375,8 @@ def train(args, tokenizer, device):
                     os.makedirs(test_output_dir)
                 test_output_file = os.path.join(test_output_dir, "output_gen.test")
 
-                test_acc, test_acc_all, test_total = gen_test(model, tokenizer, test_lines, test_file=test_output_file)
+                test_acc, test_acc_all, test_total = gen_test(model, tokenizer, test_lines,
+                                                              eqn_order = args.eqn_order , test_file=test_output_file)
                 test_acc = test_acc / test_total
                 test_acc_all = test_acc_all / test_total
 
@@ -559,15 +559,16 @@ def genrank_test(args, model, device, tokenizer, lines, pad_token_id):
             acc += 1
     return acc * 100.0 / len(all_batch)
 
-def gen_test(model, device, tokenizer, lines, num_beam=10, num_return_sequences=10, test_file=None):
+def gen_test(model, device, tokenizer, lines, eqn_order,
+             num_beam=10, num_return_sequences=10, test_file=None):
     print("gen testing ........")
     model = model.module if hasattr(model, "module") else model
     model.eval()
     acc = acc_all = 0
     total = len(lines)
     rank_samples = []
-    for i, line in enumerate(tqdm(lines)):
-        problem, label = line.strip().split("\t")
+    for i, item in enumerate(tqdm(lines)):
+        problem, label, numbers = extract_text_label(item, eqn_order)
         hit_acc = hit_1 = False
         batch = tokenizer.prepare_seq2seq_batch(problem, src_lang=SRC_LANG, return_tensors="pt")
         for k,v in batch.items():

@@ -131,6 +131,8 @@ class TextDataset(Dataset):
                 batch_encoding["decoder_input_ids"] = shift_tokens_right(
                     batch_encoding["labels"], pad_token_id=self.tokenizer.pad_token_id
                 )
+                # replace first token with pad token instead of eos as per T5 docs
+                batch_encoding["decoder_input_ids"][0][0] = self.tokenizer.pad_token_id
                 for k, v in batch_encoding.items():
                     batch_encoding[k] = v.squeeze(0)
                 batch_encoding["cls_label"] = torch.tensor([-100])
@@ -150,6 +152,7 @@ class TextDataset(Dataset):
                 batch_encoding["decoder_input_ids"] = shift_tokens_right(
                     batch_encoding["labels"], pad_token_id=self.tokenizer.pad_token_id
                 )
+                batch_encoding["decoder_input_ids"][0][0] = self.tokenizer.pad_token_id
                 for k, v in batch_encoding.items():
                     batch_encoding[k] = v.squeeze(0)
                 batch_encoding["labels"] = torch.full_like(

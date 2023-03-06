@@ -669,11 +669,18 @@ def genrank_test(args, model, device, tokenizer, lines, pad_token_id):
         batch_encoding["decoder_input_ids"] = shift_tokens_right(
             batch_encoding["labels"], pad_token_id
         )
+        # fix: replace first token with pad token instead of eos as per T5 docs
+        batch_encoding["decoder_input_ids"][0][0] = tokenizer.pad_token_id
+
         for k, v in batch_encoding.items():
             batch_encoding[k] = v.squeeze(0)
         batch_encoding["cls_label"] = torch.tensor([1])
         batch_encoding.pop("labels")
         batch_encoding["answer_label"] = label
+        # fix: if no eos token in decoder input, add it
+        eos_mask = batch_encoding["decoder_input_ids"].eq(tokenizer.eos_token_id)
+        if not eos_mask.any(): batch_encoding["decoder_input_ids"][-1] = tokenizer.eos_token_id
+
         batch.append(batch_encoding)
     all_batch.append(batch)
 

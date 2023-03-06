@@ -161,6 +161,10 @@ class TextDataset(Dataset):
                 )
                 batch_encoding["cls_label"] = torch.tensor([int(cls_label)])
 
+            # fix: if no eos token in decoder input, add it
+            eos_mask = batch_encoding["decoder_input_ids"].eq(self.tokenizer.eos_token_id)
+            if not eos_mask.any(): batch_encoding["decoder_input_ids"][-1] = self.tokenizer.eos_token_id
+
             self.features[i] = batch_encoding
 
 

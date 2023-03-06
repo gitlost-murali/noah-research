@@ -388,7 +388,7 @@ def train(args, tokenizer, device):
 
                 with open(test_output_file) as f:
                     test_rank_lines = f.readlines()
-                test_rank_acc = genrank_test(args, model, tokenizer, test_rank_lines, tokenizer.pad_token_id)
+                test_rank_acc = genrank_test(args, model, device, tokenizer, test_rank_lines, tokenizer.pad_token_id)
 
                 logging.info("** ** * Saving fine-tuned model ** ** * ")
                 # Only save the model it-self

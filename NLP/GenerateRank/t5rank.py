@@ -381,7 +381,7 @@ def train(args, tokenizer, device):
                     os.makedirs(test_output_dir)
                 test_output_file = os.path.join(test_output_dir, "output_gen.test")
 
-                test_acc, test_acc_all, test_total = gen_test(model, tokenizer, test_lines,
+                test_acc, test_acc_all, test_total = gen_test(model, device, tokenizer, test_lines,
                                                               eqn_order = args.eqn_order , test_file=test_output_file)
                 test_acc = test_acc / test_total
                 test_acc_all = test_acc_all / test_total

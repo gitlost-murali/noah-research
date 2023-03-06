@@ -27,13 +27,13 @@ def split_eq(text):
     text = re.split(r"([=\+\-\*\/\{\}\(\)\[\]\^])", text)
     return [x for x in text if x]
 
-def get_test_nums():
+def get_test_nums(additional_string = "#"):
     #mapping from symbol numbers to real numbers
     nums = {"#_pi": 3.14, "PI": 3.14}
     for i in range(10):
         nums[str(i)] = float(i)
     for i in range(50):
-        nums[f"#{i}"] = random.random()
+        nums[f"{additional_string}{i}"] = random.random()
     return nums
 
 def calculate_eval(equation, nums):
@@ -96,7 +96,12 @@ def calculate_eval_svamp(equation, nums, order = "prefix"):
         return None
     return ans
 
-def is_equal(label, text):
+def is_equal(label, text, number_filler = False):
+    """
+    Check if the text is equal to the label
+    number_filler: if True, add "number" to make it "#number0".
+    Used for svamp/mawps dataset
+    """
     for test_times in range(3):
         failed = 0
         label_ans = None
@@ -104,7 +109,10 @@ def is_equal(label, text):
             failed += 1
             if failed == 5:
                 return False
-            nums = get_test_nums()
+            
+            if number_filler: additional_string = "number"
+            else: additional_string = "#"
+            nums = get_test_nums(additional_string=additional_string)
             label_ans = calculate_eval(label, nums)
         text_ans = calculate_eval(text, nums)
         try:

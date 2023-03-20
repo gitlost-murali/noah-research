@@ -437,12 +437,6 @@ def train(args, tokenizer, device):
                 os.makedirs(test_output_dir)
             valid_output_file = os.path.join(test_output_dir, "output_gen.valid")
 
-            with warnings.catch_warnings(record=True):
-                warnings.simplefilter("always")
-
-            warnings.showwarning = lambda message, category, filename, lineno, file=None, line=None: \
-                print(f"Warning on line {lineno}: {filename}: {category}: {message}\n")
-
             valid_acc, valid_acc_all, valid_total = gen_test(
                 model,
                 device,

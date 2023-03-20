@@ -92,6 +92,7 @@ class MyT5ForSequenceClassificationAndGeneration(T5ForConditionalGeneration):
         output_attentions=None,
         output_hidden_states=True,
         return_dict=None,
+        freeze_seq2seq=False,
         **kwargs,
     ):
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
@@ -127,7 +128,7 @@ class MyT5ForSequenceClassificationAndGeneration(T5ForConditionalGeneration):
         mlm_logits = outputs.logits
 
         masked_lm_loss = None
-        if labels is not None:
+        if labels is not None and freeze_seq2seq is False:
             loss_fct = CrossEntropyLoss(ignore_index=-100)
             masked_lm_loss = loss_fct(mlm_logits.view(-1, mlm_logits.shape[-1]), labels.view(-1))
 
@@ -144,6 +145,8 @@ class MyT5ForSequenceClassificationAndGeneration(T5ForConditionalGeneration):
             sentence_representation = hidden_states[eos_mask, :].view(hidden_states.size(0), -1, hidden_states.size(-1))[
                 :, -1, :
             ]
+            if freeze_seq2seq:
+                sentence_representation = sentence_representation.detach()
             cls_logits = self.classification_head(sentence_representation)
             loss_fct = CrossEntropyLoss(ignore_index=-100)
             cls_loss = loss_fct(cls_logits.view(-1, self.config.num_labels), cls_label.view(-1))

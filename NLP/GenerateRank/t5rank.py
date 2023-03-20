@@ -377,11 +377,13 @@ def train(args, tokenizer, device):
                     inputs[k] = v.to(device)
 
             model.train()
+            if args.freeze_seq2seq:
+                inputs["freeze_seq2seq"] = True
             outputs = model(**inputs)
 
-            mlm_loss = outputs["loss"]
+            mlm_loss = outputs.get("loss", None) if args.freeze_seq2seq else outputs["loss"]
             cls_loss = outputs["cls_loss"]
-            if torch.isnan(mlm_loss):
+            if not args.freeze_seq2seq and torch.isnan(mlm_loss):
                 mlm_loss = None
 
             mlm_loss = (
@@ -993,11 +995,18 @@ if __name__ == "__main__":
         type=int,
         help="Which fold to use for training. -1 for all data/SVAMP",
     )
+    parser.add_argument(
+        "--freeze_seq2seq",
+        default=False,
+        action="store_true",
+        help="Freeze seq2seq model weights and train only ranker",
+    )
+
     args = parser.parse_args()
     args.rank = int(os.getenv("RANK", "0"))
     args.world_size = int(os.getenv("WORLD_SIZE", "1"))
 
-    project_name = f"reranker-{Path(args.output_dir).stem}-{args.dataset_name}-n{args.data_limit}-{args.eqn_order}-src{args.max_source_length}-tgt{args.max_target_length}"
+    project_name = f"reranker-{Path(args.output_dir).stem}-freeze_seq2seq{args.freeze_seq2seq}-{args.dataset_name}-n{args.data_limit}-{args.eqn_order}-src{args.max_source_length}-tgt{args.max_target_length}"
 
     current_time = datetime.datetime.now()
     timestamp = current_time.strftime("%b_%d_%Y")

@@ -28,6 +28,7 @@ import random
 import sys
 import time
 from pathlib import Path
+import warnings
 
 import numpy as np
 import torch
@@ -434,23 +435,36 @@ def train(args, tokenizer, device):
                 os.makedirs(test_output_dir)
             valid_output_file = os.path.join(test_output_dir, "output_gen.valid")
 
-            valid_acc, valid_acc_all, valid_total = gen_test(
-                model,
-                device,
-                tokenizer,
-                valid_lines,
-                args.eqn_order,
-                test_file=valid_output_file,
-            )
+            try:
+                valid_acc, valid_acc_all, valid_total = gen_test(
+                    model,
+                    device,
+                    tokenizer,
+                    valid_lines,
+                    args.eqn_order,
+                    test_file=valid_output_file,
+                )
+            except SyntaxWarning as warning:
+                valid_acc = -1
+                valid_acc_all = -1
+                valid_total = -1
+                warnings.warn(str(warning), SyntaxWarning)
+                sys.exit(1)
+
             valid_acc = valid_acc / valid_total
             valid_acc_all = valid_acc_all / valid_total
 
             with open(valid_output_file) as f:
                 valid_rank_lines = f.readlines()
-            valid_rank_acc = genrank_test(
-                args, model, device, tokenizer, valid_rank_lines, tokenizer.pad_token_id
-            )
 
+            try:
+                valid_rank_acc = genrank_test(
+                    args, model, device, tokenizer, valid_rank_lines, tokenizer.pad_token_id
+                )
+            except SyntaxWarning as warning:
+                valid_rank_acc = -1
+                warnings.warn(str(warning), SyntaxWarning)
+                sys.exit(1)
             test_end_time = time.time()
             result["valid_acc"] = valid_acc
             result["valid_acc_all"] = valid_acc_all

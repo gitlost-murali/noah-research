@@ -435,21 +435,20 @@ def train(args, tokenizer, device):
                 os.makedirs(test_output_dir)
             valid_output_file = os.path.join(test_output_dir, "output_gen.valid")
 
-            try:
-                valid_acc, valid_acc_all, valid_total = gen_test(
-                    model,
-                    device,
-                    tokenizer,
-                    valid_lines,
-                    args.eqn_order,
-                    test_file=valid_output_file,
-                )
-            except SyntaxWarning as warning:
-                valid_acc = -1
-                valid_acc_all = -1
-                valid_total = -1
-                warnings.warn(str(warning), SyntaxWarning)
-                sys.exit(1)
+            with warnings.catch_warnings(record=True):
+                warnings.simplefilter("always")
+
+            warnings.showwarning = lambda message, category, filename, lineno, file=None, line=None: \
+                print(f"Warning on line {lineno}: {message}\n")
+
+            valid_acc, valid_acc_all, valid_total = gen_test(
+                model,
+                device,
+                tokenizer,
+                valid_lines,
+                args.eqn_order,
+                test_file=valid_output_file,
+            )
 
             valid_acc = valid_acc / valid_total
             valid_acc_all = valid_acc_all / valid_total
@@ -457,14 +456,9 @@ def train(args, tokenizer, device):
             with open(valid_output_file) as f:
                 valid_rank_lines = f.readlines()
 
-            try:
-                valid_rank_acc = genrank_test(
-                    args, model, device, tokenizer, valid_rank_lines, tokenizer.pad_token_id
-                )
-            except SyntaxWarning as warning:
-                valid_rank_acc = -1
-                warnings.warn(str(warning), SyntaxWarning)
-                sys.exit(1)
+            valid_rank_acc = genrank_test(
+                args, model, device, tokenizer, valid_rank_lines, tokenizer.pad_token_id
+            )
             test_end_time = time.time()
             result["valid_acc"] = valid_acc
             result["valid_acc_all"] = valid_acc_all

@@ -439,7 +439,7 @@ def train(args, tokenizer, device):
                 warnings.simplefilter("always")
 
             warnings.showwarning = lambda message, category, filename, lineno, file=None, line=None: \
-                print(f"Warning on line {lineno}: {message}\n")
+                print(f"Warning on line {lineno}: {filename}: {category}: {message}\n")
 
             valid_acc, valid_acc_all, valid_total = gen_test(
                 model,

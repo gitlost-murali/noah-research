@@ -45,7 +45,7 @@ from transformers import (
 from transformers.models.mbart.modeling_mbart import shift_tokens_right
 
 import wandb
-from data_utils import extract_text_label
+from data_utils import extract_text_label, remove_invalid_equations
 from exp_tree import corrupt_expression
 from t5_GenerateRankModel import MyT5ForSequenceClassificationAndGeneration
 from t5_inference_utils import GeneralDataset
@@ -293,6 +293,8 @@ def train(args, tokenizer, device):
         collect_lines = add_rule_negatives(
             collect_lines, add_num=args.num_negatives, all_expressions=all_expressions
         )
+    if args.remove_invalid_eqns_manually:
+        collect_lines = remove_invalid_equations(collect_lines)
     train_dataset = TextDataset(
         tokenizer, collect_lines, args.max_source_length, args.max_target_length
     )
@@ -452,6 +454,8 @@ def train(args, tokenizer, device):
             with open(valid_output_file) as f:
                 valid_rank_lines = f.readlines()
 
+            if args.remove_invalid_eqns_manually:
+                valid_rank_lines = remove_invalid_equations(valid_rank_lines)
             valid_rank_acc = genrank_test(
                 args, model, device, tokenizer, valid_rank_lines, tokenizer.pad_token_id
             )
@@ -482,6 +486,9 @@ def train(args, tokenizer, device):
 
                 with open(test_output_file) as f:
                     test_rank_lines = f.readlines()
+
+                if args.remove_invalid_eqns_manually:
+                    test_rank_lines = remove_invalid_equations(test_rank_lines)
                 test_rank_acc = genrank_test(
                     args,
                     model,
@@ -554,6 +561,8 @@ def train(args, tokenizer, device):
                     add_num=args.num_negatives,
                     all_expressions=all_expressions,
                 )
+            if args.remove_invalid_eqns_manually:
+                collect_lines = remove_invalid_equations(collect_lines)
             train_dataset = TextDataset(
                 tokenizer, collect_lines, args.max_source_length, args.max_target_length
             )
@@ -995,12 +1004,17 @@ if __name__ == "__main__":
         action="store_true",
         help="Freeze seq2seq model weights and train only ranker",
     )
-
+    parser.add_argument(
+        "--remove_invalid_eqns_manually",
+        default=False,
+        action="store_true",
+        help="Remove invalid equations manually from seq2seq generated equations before ranking",
+    )
     args = parser.parse_args()
     args.rank = int(os.getenv("RANK", "0"))
     args.world_size = int(os.getenv("WORLD_SIZE", "1"))
 
-    project_name = f"reranker-{Path(args.output_dir).stem}-freeze_seq2seq{args.freeze_seq2seq}-{args.dataset_name}-n{args.data_limit}-{args.eqn_order}-src{args.max_source_length}-tgt{args.max_target_length}"
+    project_name = f"reranker-{Path(args.output_dir).stem}-freeze_seq2seq{args.freeze_seq2seq}-manualremove_invalid_eqn{args.remove_invalid_eqns_manually}-{args.dataset_name}-n{args.data_limit}-{args.eqn_order}-src{args.max_source_length}-tgt{args.max_target_length}"
 
     current_time = datetime.datetime.now()
     timestamp = current_time.strftime("%b_%d_%Y")

@@ -1,4 +1,5 @@
 from utils import infix2postfix, infix2prefix, prefix2infix
+import random
 
 def extract_equation(item, eqn_order):
     goal= item["text"]
@@ -66,6 +67,25 @@ def test_convert_string():
     assert convert_temp_vars("this is a test") == "this is a test"
     assert convert_temp_vars("temp_z temp_y temp_z") == "number25 number24 number25"
     assert convert_temp_vars("") == ""
+
+def remove_invalid_equations(collect_lines):
+    """
+    Remove equations that are invalid for calculations (e.g. 1/0 or incorrect number of parantheses)
+    """
+    only_valid = []
+    for line in collect_lines:
+        # regex to get number0, number1, number2 from "line"
+        numbers_in_prob = re.findall(r"number\d+", line)
+        numbers_to_fill = [str(random.randint(0, 10)) for _ in range(len(numbers_in_prob))]
+        numbers2fill = dict(zip(numbers_in_prob, numbers_to_fill)) # map number0 -> 5, number1 -> 3, etc.
+        gen_eq = line.split("\t")[1]
+        for key, value in numbers2fill.items(): gen_eq = gen_eq.replace(key, value)
+        try:
+            _ = eval(gen_eq)
+            only_valid.append(line)
+        except:
+            pass
+    return only_valid
 
 if __name__ == "__main__":
     test_convert_string()

@@ -41,7 +41,7 @@ from transformers import T5ForConditionalGeneration, T5ForConditionalGeneration
 from transformers import (T5Tokenizer, AutoTokenizer, CONFIG_NAME,
                          WEIGHTS_NAME, AdamW, get_linear_schedule_with_warmup)
 from utils import read_json
-from data_utils import extract_text_label
+from data_utils import extract_text_label, create_newtrainval_splits
 
 from t5_inference_utils import batch_test
 
@@ -317,11 +317,6 @@ def main(args):
         args.n_gpu = 0 if args.no_cuda else torch.cuda.device_count()
         args.local_rank = -1
 
-    if args.rank == 0 and os.path.exists(args.output_dir) and os.listdir(args.output_dir):
-        raise ValueError("Output directory ({}) already exists and is not empty.".format(args.output_dir))
-    if not os.path.exists(args.output_dir) and args.rank == 0:
-        os.makedirs(args.output_dir)
-
     if args.distributed:
         torch.distributed.init_process_group(backend='nccl', world_size=args.world_size, rank=args.rank)
         torch.distributed.barrier()
@@ -350,7 +345,7 @@ if __name__ == "__main__":
     ## Required parameters
     parser.add_argument("--train_file", default=None, type=str, required=True,
                         help="The input training data file (a text file).")
-    parser.add_argument("--valid_file", default=None, type=str, required=True,
+    parser.add_argument("--valid_file", default=None, type=str, required=False,
                         help="The input validing data file (a text file).")
     parser.add_argument("--test_file", default=None, type=str, required=True,
                         help="The input testing data file (a text file).")
@@ -407,13 +402,38 @@ if __name__ == "__main__":
                         help='Store predictions in a json file or not')
     parser.add_argument('--fold', default=-1, type=int,
                         help='Which fold to use for training. -1 for all data/SVAMP')
+    parser.add_argument(
+        "--split_ratio",
+        default=0.85,
+        type=float,
+        help="Ratio of train-validation splits when validation split is not given",
+    )
     args = parser.parse_args()
 
-    project_name = f"{Path(args.model_path).name}-t5-{args.dataset_name}-n{args.data_limit}-{args.eqn_order}-src{args.max_source_length}-tgt{args.max_target_length}"
+    if args.valid_file==None:
+        valid_file_given = False
+    else:
+        valid_file_given = True
+
+    project_name = f"{Path(args.model_path).name}-t5-newtrainval_{not valid_file_given}-{args.dataset_name}-n{args.data_limit}-{args.eqn_order}-src{args.max_source_length}-tgt{args.max_target_length}"
 
     current_time = datetime.datetime.now()
     timestamp = current_time.strftime("%b_%d_%Y")
     args.output_dir = Path(args.output_dir).parent/f"{Path(args.output_dir).stem}_{timestamp}_{args.dataset_name}_{args.eqn_order}"
+
+    # Create output directory
+    try:
+        args.output_dir.mkdir(parents=True, exist_ok=False)
+    except:
+        raise ValueError(
+                    "Output directory ({}) already exists and is not empty.".format(
+                        args.output_dir
+                    ))
+
+    if not valid_file_given:
+        newtrainfile, newvalfile = create_newtrainval_splits(args, split_ratio=0.85)
+        args.train_file = newtrainfile
+        args.valid_file = newvalfile
 
     if args.fold != -1:
         wandb_dict = {"name": f"fold-{args.fold}-{timestamp}"}
@@ -423,5 +443,6 @@ if __name__ == "__main__":
     wandb.config = vars(args)
     args.rank = int(os.getenv('RANK', '0'))
     args.world_size = int(os.getenv("WORLD_SIZE", '1'))
+    print(args)
     main(args)
 

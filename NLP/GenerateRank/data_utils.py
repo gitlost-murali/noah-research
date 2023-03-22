@@ -1,5 +1,7 @@
-from utils import infix2postfix, infix2prefix, prefix2infix
+from utils import infix2postfix, infix2prefix, prefix2infix, read_json, write_2_json
 import random
+from random import shuffle
+import os
 
 def extract_equation(item, eqn_order):
     goal= item["text"]
@@ -86,6 +88,22 @@ def remove_invalid_equations(collect_lines):
         except:
             pass
     return only_valid
+
+def create_newtrainval_splits(args, split_ratio=0.85):
+    """
+    Create new train and val splits from the original train file.
+    """
+    print("Creating new train and val splits from the original train file...")
+    data = read_json(args.train_file) # read original train file
+    shuffle(data) # shuffle the data
+    train_data = data[:int(len(data)*split_ratio)] # split into train and val
+    val_data = data[int(len(data)*split_ratio):] # split into train and val
+    train_filepath = os.path.join(args.output_dir, "new_train.json") # write to new files
+    val_filepath = os.path.join(args.output_dir, "new_val.json") # write to new files
+    write_2_json(train_data, train_filepath) # write to new files
+    write_2_json(val_data, val_filepath) # write to new files
+    print("New train and val splits created and saved to {} and {}.".format(train_filepath, val_filepath))
+    return train_filepath, val_filepath
 
 if __name__ == "__main__":
     test_convert_string()

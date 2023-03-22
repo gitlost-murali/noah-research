@@ -45,7 +45,7 @@ from transformers import (
 from transformers.models.mbart.modeling_mbart import shift_tokens_right
 
 import wandb
-from data_utils import extract_text_label, remove_invalid_equations
+from data_utils import extract_text_label, remove_invalid_equations, create_newtrainval_splits
 from exp_tree import corrupt_expression
 from t5_GenerateRankModel import MyT5ForSequenceClassificationAndGeneration
 from t5_inference_utils import GeneralDataset
@@ -804,16 +804,6 @@ def main(args):
             backend="nccl", world_size=args.world_size, rank=args.rank
         )
     print("init done")
-    if (
-        args.rank == 0
-        and os.path.exists(args.output_dir)
-        and os.listdir(args.output_dir)
-    ):
-        raise ValueError(
-            "Output directory ({}) already exists and is not empty.".format(
-                args.output_dir
-            )
-        )
     if args.distributed:
         torch.distributed.barrier()
 
@@ -855,7 +845,7 @@ if __name__ == "__main__":
         "--valid_file",
         default=None,
         type=str,
-        required=True,
+        required=False,
         help="The input validing data file (a text file).",
     )
     parser.add_argument(
@@ -1008,11 +998,22 @@ if __name__ == "__main__":
         action="store_true",
         help="Remove invalid equations manually from seq2seq generated equations before ranking",
     )
+    parser.add_argument(
+        "--split_ratio",
+        default=0.85,
+        type=float,
+        help="Ratio of train-validation splits when validation split is not given",
+    )
     args = parser.parse_args()
     args.rank = int(os.getenv("RANK", "0"))
     args.world_size = int(os.getenv("WORLD_SIZE", "1"))
 
-    project_name = f"reranker-{Path(args.output_dir).stem}-freeze_seq2seq{args.freeze_seq2seq}-manualremove_invalid_eqn{args.remove_invalid_eqns_manually}-{args.dataset_name}-n{args.data_limit}-{args.eqn_order}-src{args.max_source_length}-tgt{args.max_target_length}"
+    if args.valid_file==None:
+        valid_file_given = False
+    else:
+        valid_file_given = True
+
+    project_name = f"reranker-{Path(args.output_dir).stem}-newtrainval_{not valid_file_given}-Freeze_seq2seq{args.freeze_seq2seq}-Manualremove_invalid_eqn{args.remove_invalid_eqns_manually}-{args.dataset_name}-n{args.data_limit}-{args.eqn_order}-src{args.max_source_length}-tgt{args.max_target_length}"
 
     current_time = datetime.datetime.now()
     timestamp = current_time.strftime("%b_%d_%Y")
@@ -1020,6 +1021,19 @@ if __name__ == "__main__":
         Path(args.output_dir).parent
         / f"{Path(args.output_dir).stem}_{timestamp}_{args.dataset_name}_{args.eqn_order}"
     )
+    # Create output directory
+    try:
+        args.output_dir.mkdir(parents=True, exist_ok=False)
+    except:
+        raise ValueError(
+                    "Output directory ({}) already exists and is not empty.".format(
+                        args.output_dir
+                    ))
+
+    if not valid_file_given:
+        newtrainfile, newvalfile = create_newtrainval_splits(args, split_ratio=0.85)
+        args.train_file = newtrainfile
+        args.valid_file = newvalfile
 
     if args.fold != -1:
         wandb_dict = {"name": f"fold-{args.fold}-{timestamp}"}
@@ -1027,5 +1041,5 @@ if __name__ == "__main__":
         wandb_dict = {}
     wandb.init(project=project_name, entity="thesismurali-self", **wandb_dict)
     wandb.config = vars(args)
-
+    print(args)
     main(args)

@@ -189,6 +189,10 @@ def read_json(data_file):
         data = json.load(f)
     return data
 
+def write_2_json(data, data_file):
+    with open(data_file, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=4)
+
 # function to convert infix expression to prefix expression
 def infix2prefix(infix: List[str]) -> List[str]:
     """Example: 

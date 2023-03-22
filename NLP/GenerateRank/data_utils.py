@@ -81,7 +81,7 @@ def remove_invalid_equations(collect_lines):
         gen_eq = line.split("\t")[1]
         for key, value in numbers2fill.items(): gen_eq = gen_eq.replace(key, value)
         try:
-            _ = eval(gen_eq)
+            _ = float(eval(gen_eq))
             only_valid.append(line)
         except:
             pass

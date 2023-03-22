@@ -293,8 +293,6 @@ def train(args, tokenizer, device):
         collect_lines = add_rule_negatives(
             collect_lines, add_num=args.num_negatives, all_expressions=all_expressions
         )
-    if args.remove_invalid_eqns_manually:
-        collect_lines = remove_invalid_equations(collect_lines)
     train_dataset = TextDataset(
         tokenizer, collect_lines, args.max_source_length, args.max_target_length
     )

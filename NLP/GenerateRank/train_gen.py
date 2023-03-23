@@ -294,7 +294,7 @@ def test(model, tokenizer, device, lines, dataset_name,
         text = [clean_text(t) for t in text]
 
         for candidate in text:
-            if is_equal(label, candidate):
+            if is_equal(label, candidate, number_filler=True):
                 acc += 1
                 break
     return acc, total

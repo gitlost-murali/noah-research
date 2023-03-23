@@ -74,7 +74,7 @@ def add_rule_negatives(lines, add_num=10, all_expressions=None):
             for _ in range(add_num):
                 try:
                     rule_neg = corrupt_expression(correct)
-                    this_label = '1' if is_equal(correct, rule_neg) else '0'
+                    this_label = '1' if is_equal(correct, rule_neg, number_filler=True) else '0'
                     all_lines.append("\t".join([prob, rule_neg, correct, this_label]) + '\n')
                 except:
                     print("error??")
@@ -475,7 +475,7 @@ def generate_sample(model, tokenizer, dataloader, device, output_samples_file, a
                 samples.append((p, e, e, 1))
                 beam = text[idx*beam_size: (idx+1)*beam_size]
                 for b in beam:
-                    if is_equal(e, b):
+                    if is_equal(e, b, number_filler=True):
                         samples.append((p, b, b, 1))
                     else:
                         samples.append((p, b, e, 0))
@@ -585,11 +585,11 @@ def gen_test(model, device, tokenizer, lines,
         text = [clean_text(t) for t in text]
 
         for idx, candidate in enumerate(text):
-            if is_equal(label, candidate):
+            if is_equal(label, candidate, number_filler=True):
                 hit_acc = True
                 if idx == 0:
                     hit_1 = True
-            rank_label = '1' if is_equal(label, candidate) else '0'
+            rank_label = '1' if is_equal(label, candidate, number_filler=True) else '0'
             rank_samples.append([problem, candidate, rank_label, label])
 
         if hit_acc:

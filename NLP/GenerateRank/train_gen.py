@@ -25,16 +25,20 @@ import os
 
 import random
 import time
-
+import wandb
+from pathlib import Path
 import numpy as np
 import torch
+import datetime
 
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm, trange
 from transformers.models.mbart.modeling_mbart import MBartForConditionalGeneration
 from transformers import (MBartTokenizer, CONFIG_NAME,
                          WEIGHTS_NAME, AdamW, get_linear_schedule_with_warmup)
-from utils import is_equal, clean_text
+from utils import is_equal, clean_text, read_json
+from data_utils import extract_text_label, create_newtrainval_splits
+
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
                     datefmt='%m/%d/%Y %H:%M:%S',
@@ -42,36 +46,50 @@ logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message
 logger = logging.getLogger(__name__)
 
 class TextDataset(Dataset):
-    def __init__(self, tokenizer, data_file, max_source_length, max_target_length):
+    def __init__(self, tokenizer, data_file, dataset_name,
+                 max_source_length, max_target_length,
+                 eqn_order, data_limit):
         self.max_source_length = max_source_length
         self.max_target_length = max_target_length
         self.data_file = data_file
         self.tokenizer = tokenizer
+        self.dataset_name = dataset_name
+        self.eqn_order = eqn_order
+        self.data_limit = data_limit
         self.features = {}
         self.prepare_data()
 
+    def store_feature(self, indx, goal, proof):
+        batch_encoding = self.tokenizer.prepare_seq2seq_batch(
+            src_texts=goal,
+            tgt_texts=proof,
+            max_length=self.max_source_length,
+            max_target_length=self.max_target_length,
+            src_lang=SRC_LANG,
+            tgt_lang=TGT_LANG,
+            padding="max_length"
+        ).data
+        for k,v in batch_encoding.items():
+            batch_encoding[k] = torch.tensor(v)
+
+        self.features[indx] = batch_encoding
+
     def prepare_data(self):
-        with open(self.data_file, encoding="utf-8") as f:
-            lines = f.readlines()
-        for i, line in enumerate(tqdm(lines, desc="Prepare train data")):
-
-            items = line.strip().split('\t')
-
-            goal, proof = items[0], items[1]
-
-            batch_encoding = self.tokenizer.prepare_seq2seq_batch(
-                src_texts=goal,
-                tgt_texts=proof,
-                max_length=self.max_source_length,
-                max_target_length=self.max_target_length,
-                src_lang=SRC_LANG,
-                tgt_lang=TGT_LANG,
-                padding="max_length"
-            ).data
-            for k,v in batch_encoding.items():
-                batch_encoding[k] = torch.tensor(v)
-
-            self.features[i] = batch_encoding
+        if self.dataset_name == "mawps" or self.dataset_name == "svamp":
+            # open a json file and read it where text is in "text" key and infix equation is in "template_equ" key
+            data = read_json(self.data_file)
+            for i, item in enumerate(tqdm(data, desc="Prepare train data")):
+                goal, proof, numbers = extract_text_label(item, self.eqn_order)
+                self.store_feature(i, goal, proof)
+                if self.data_limit > 0 and i > self.data_limit: break
+        else:
+            with open(self.data_file, encoding="utf-8") as f:
+                lines = f.readlines()
+            for i, line in enumerate(tqdm(lines, desc="Prepare train data")):
+                items = line.strip().split('\t')
+                goal, proof = items[0], items[1]
+                self.store_feature(i, goal, proof)
+                if self.data_limit > 0 and i > self.data_limit: break
 
     def __len__(self):
         return len(self.features)
@@ -90,11 +108,17 @@ def set_seed(args):
 def train(args, tokenizer, device):
     """ Train the model """
 
-    train_dataset = TextDataset(tokenizer, args.train_file, args.max_source_length, args.max_target_length)
-    with open(args.valid_file) as f:
-        valid_lines = f.readlines()
-    with open(args.test_file) as f:
-        test_lines = f.readlines()
+    train_dataset = TextDataset(tokenizer, args.train_file, args.dataset_name,
+                                args.max_source_length, args.max_target_length,
+                                args.eqn_order, args.data_limit)
+    if args.dataset_name == "svamp" or args.dataset_name == "mawps":
+        valid_lines = read_json(args.valid_file)
+        test_lines = read_json(args.test_file)
+    else:
+        with open(args.valid_file) as f:
+            valid_lines = f.readlines()
+        with open(args.test_file) as f:
+            test_lines = f.readlines()
 
     model = MBartForConditionalGeneration.from_pretrained(args.model_path)
     model.resize_token_embeddings(len(tokenizer))
@@ -188,6 +212,8 @@ def train(args, tokenizer, device):
                         writer.write("%s = %s\n" % (key, str(result[key])))
                     writer.write("\n")
 
+                wandb.log(result)
+
         # epoch end
         train_end_time = time.time()
         if args.rank == 0 and epoch % args.test_per_epoch == 0:
@@ -195,14 +221,19 @@ def train(args, tokenizer, device):
             result['global_step'] = global_step
             result['epoch'] = epoch
             test_start_time = time.time()
-            valid_acc, valid_total = test(model, tokenizer, valid_lines)
+            valid_acc, valid_total = test(model, tokenizer, device, valid_lines, dataset_name=args.dataset_name,
+                                          eqn_order=args.eqn_order, batch_size=args.per_gpu_train_batch_size)
             test_end_time = time.time()
             valid_acc = valid_acc / valid_total
             result['valid_acc'] = valid_acc
+
+            wandb.log(result)
+
             if valid_acc > best_valid_acc:
                 best_valid_acc = valid_acc
                 best_valid_epoch = epoch
-                test_acc, test_total = test(model, tokenizer, test_lines)
+                test_acc, test_total = test(model, tokenizer, device, test_lines, dataset_name=args.dataset_name,
+                                          eqn_order=args.eqn_order, batch_size=args.per_gpu_train_batch_size)
                 test_acc = test_acc / test_total
 
                 logging.info("** ** * Saving fine-tuned model ** ** * ")
@@ -228,6 +259,8 @@ def train(args, tokenizer, device):
             result['train_epoch_time'] = train_end_time - train_start_time
             result['test_time'] = test_end_time - test_start_time
 
+            wandb.log(result)
+
             with open(output_logging_file, "a") as writer:
                 logger.info("***** Eval results *****")
                 for key in sorted(result.keys()):
@@ -237,16 +270,22 @@ def train(args, tokenizer, device):
 
     return global_step, tr_loss / global_step
 
-def test(model, tokenizer, lines, num_beam=10, num_return_sequences=1):
+def test(model, tokenizer, device, lines, dataset_name, 
+         num_beam=10, num_return_sequences=1, 
+         eqn_order="infix", max_target_length=100, batch_size=8):
     model = model.module if hasattr(model, "module") else model
     model.eval()
     acc = 0
     total = len(lines)
+    assert eqn_order == "infix", "only infix is supported for now!"
     for i, line in enumerate(tqdm(lines)):
-        problem, label = line.strip().split("\t")
+        if dataset_name == "svamp" or dataset_name == "mawps":
+            problem, label, numbers = extract_text_label(line, eqn_order)
+        else:
+            problem, label = line.strip().split("\t")
         batch = tokenizer.prepare_seq2seq_batch(problem, src_lang=SRC_LANG, return_tensors="pt")
         for k,v in batch.items():
-            batch[k] = v.cuda()
+            batch[k] = v.to(device)
         text = model.generate(**batch, decoder_start_token_id=tokenizer.lang_code_to_id["en_XX"],
                               num_beams=num_beam, early_stopping=True, max_length=100, num_return_sequences=num_return_sequences)
 
@@ -280,11 +319,6 @@ def main(args):
         args.n_gpu = 0 if args.no_cuda else torch.cuda.device_count()
         args.local_rank = -1
 
-    if args.rank == 0 and os.path.exists(args.output_dir) and os.listdir(args.output_dir):
-        raise ValueError("Output directory ({}) already exists and is not empty.".format(args.output_dir))
-    if not os.path.exists(args.output_dir) and args.rank == 0:
-        os.makedirs(args.output_dir)
-
     if args.distributed:
         torch.distributed.init_process_group(backend='nccl', world_size=args.world_size, rank=args.rank)
         torch.distributed.barrier()
@@ -309,7 +343,7 @@ if __name__ == "__main__":
     ## Required parameters
     parser.add_argument("--train_file", default=None, type=str, required=True,
                         help="The input training data file (a text file).")
-    parser.add_argument("--valid_file", default=None, type=str, required=True,
+    parser.add_argument("--valid_file", default=None, type=str, required=False,
                         help="The input validing data file (a text file).")
     parser.add_argument("--test_file", default=None, type=str, required=True,
                         help="The input testing data file (a text file).")
@@ -355,8 +389,53 @@ if __name__ == "__main__":
     parser.add_argument('--distributed', default=False,
                         action='store_true',
                         help='Use distributed training.')
-
+    parser.add_argument('--dataset_name', default="svamp", type=str,
+                        help='Use svamp/math23k dataset.', required=True)
+    parser.add_argument('--data_limit', default=-1, type=int, required=True,
+                        help='How much data to use for training. -1 for all data.')
+    parser.add_argument('--eqn_order', default='infix', type=str, required=True,
+                        help='Order of equation to generate')
+    parser.add_argument('--fold', default=-1, type=int,
+                        help='Which fold to use for training. -1 for all data/SVAMP')
+    parser.add_argument(
+        "--split_ratio",
+        default=0.85,
+        type=float,
+        help="Ratio of train-validation splits when validation split is not given",
+    )
     args = parser.parse_args()
+
+    if args.valid_file==None:
+        valid_file_given = False
+    else:
+        valid_file_given = True
+
+    project_name = f"{Path(args.model_path).name}-mBART-newtrainval_{not valid_file_given}-{args.dataset_name}-n{args.data_limit}-{args.eqn_order}-src{args.max_source_length}-tgt{args.max_target_length}"
+    current_time = datetime.datetime.now()
+    timestamp = current_time.strftime("%b_%d_%Y")
+    args.output_dir = Path(args.output_dir).parent/f"{Path(args.output_dir).stem}_{timestamp}_{args.dataset_name}_{args.eqn_order}"
+
+    # Create output directory
+    try:
+        args.output_dir.mkdir(parents=True, exist_ok=False)
+    except:
+        raise ValueError(
+                    "Output directory ({}) already exists and is not empty.".format(
+                        args.output_dir
+                    ))
+
+    if not valid_file_given:
+        newtrainfile, newvalfile = create_newtrainval_splits(args, split_ratio=0.85)
+        args.train_file = newtrainfile
+        args.valid_file = newvalfile
+
+    if args.fold != -1:
+        wandb_dict = {"name": f"fold-{args.fold}-{timestamp}"}
+    else:
+        wandb_dict = {}
+    wandb.init(project=project_name, entity="thesismurali-self", **wandb_dict)
+    wandb.config = vars(args)
+
     args.rank = int(os.getenv('RANK', '0'))
     args.world_size = int(os.getenv("WORLD_SIZE", '1'))
     main(args)

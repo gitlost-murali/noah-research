@@ -457,7 +457,7 @@ def generate_sample(model, tokenizer, dataloader, device, output_samples_file, a
         for data in tqdm(dataloader):
             prob, label = data['prob'], data['label']
             gen_prob = prob
-            batch = tokenizer.prepare_seq2seq_batch(gen_prob, src_lang="zh_CN", return_tensors="pt")
+            batch = tokenizer.prepare_seq2seq_batch(gen_prob, src_lang=args.src_lang, return_tensors="pt")
             for k, v in batch.items():
                 batch[k] = v.to(device)
 

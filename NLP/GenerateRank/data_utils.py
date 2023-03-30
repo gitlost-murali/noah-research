@@ -105,5 +105,13 @@ def create_newtrainval_splits(args, split_ratio=0.85):
     print("New train and val splits created and saved to {} and {}.".format(train_filepath, val_filepath))
     return train_filepath, val_filepath
 
+def add_tag_tosent(problem, tag, add_tag=False):
+    """
+    Add a tag to a problem.
+    """
+    if add_tag:
+        problem = tag + " " + problem
+    return problem
+
 if __name__ == "__main__":
     test_convert_string()

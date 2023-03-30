@@ -1,6 +1,6 @@
 
 from utils import clean_text, add_to_topk_accuracylist, is_equal, is_equal_svamp
-from data_utils import extract_text_label
+from data_utils import extract_text_label, add_tag_tosent
 from torch.utils.data import Dataset
 from tqdm import tqdm
 import time
@@ -46,7 +46,8 @@ class GeneralDataset(Dataset):
 
 def batch_test(model, tokenizer,  device, lines, dataset_name,
         num_beam=10, num_return_sequences=1, eqn_order="prefix",
-        max_target_length=100, batch_size=8):
+        max_target_length=100, batch_size=8,
+        add_tag = False, gentag = "generate:", ranktag = "rank:"):
     model = model.module if hasattr(model, "module") else model
     model.eval()
     acc = 0
@@ -59,6 +60,7 @@ def batch_test(model, tokenizer,  device, lines, dataset_name,
         problems, labels, numbers_list = [], [], []
         for item in lines:
             prob, label, numbers = extract_text_label(item, eqn_order)
+            prob = add_tag_tosent(problem=prob, tag=gentag, add_tag=add_tag)
             problems.append(prob)
             labels.append(label)
             numbers_list.append(numbers)

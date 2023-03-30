@@ -23,25 +23,30 @@ import argparse
 import logging
 import os
 
+import json
 import random
 import time
-import wandb
-from pathlib import Path
-import numpy as np
-import torch
-import datetime
 
-from torch.utils.data import DataLoader, Dataset
+import numpy as np
+import pandas as pd
+import torch
+
+import datetime
+import wandb
+
+from pathlib import Path
+from torch.utils.data import Dataset
 from tqdm import tqdm, trange
-from transformers.models.mbart.modeling_mbart import MBartForConditionalGeneration
-from transformers import (MBartTokenizer, CONFIG_NAME,
+from transformers import T5ForConditionalGeneration, T5ForConditionalGeneration
+from transformers import (T5Tokenizer, AutoTokenizer, CONFIG_NAME,
                          WEIGHTS_NAME, AdamW, get_linear_schedule_with_warmup)
 
 import sys
-sys.path.append("../")
-from utils import is_equal, clean_text, read_json
-from data_utils import extract_text_label, create_newtrainval_splits, add_tag_tosent
+sys.path.append('../')
 
+from utils import read_json
+from data_utils import extract_text_label, create_newtrainval_splits, add_tag_tosent
+from t5_inference_utils import batch_test
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
                     datefmt='%m/%d/%Y %H:%M:%S',
@@ -128,8 +133,12 @@ def train(args, tokenizer, device):
             valid_lines = f.readlines()
         with open(args.test_file) as f:
             test_lines = f.readlines()
+    
+    if args.debug_preds:
+        valid_lines = valid_lines[:args.data_limit]
+        test_lines = test_lines[:args.data_limit]
 
-    model = MBartForConditionalGeneration.from_pretrained(args.model_path)
+    model = T5ForConditionalGeneration.from_pretrained(args.model_path)
     model.resize_token_embeddings(len(tokenizer))
 
     config = model.config
@@ -186,7 +195,9 @@ def train(args, tokenizer, device):
     train_iterator = trange(int(args.num_train_epochs), desc="Epoch")
     set_seed(args)  # Added here for reproducibility (even between python 2 and 3)
 
-    best_valid_acc = best_valid_epoch = test_acc = 0
+    best_valid_acc = best_valid_epoch = 0
+    test_acc = {(k+1): 0 for k in range(args.num_seq)}
+
     for _ in train_iterator:
         epoch += 1
         epoch_iterator = tqdm(train_dataloader, desc="Iteration")
@@ -230,22 +241,39 @@ def train(args, tokenizer, device):
             result['global_step'] = global_step
             result['epoch'] = epoch
             test_start_time = time.time()
-            valid_acc, valid_total = test(model, tokenizer, device, valid_lines, dataset_name=args.dataset_name,
-                                          eqn_order=args.eqn_order, batch_size=args.per_gpu_train_batch_size,
+            valid_acc, valid_total, valid_preds = batch_test(model, tokenizer = tokenizer, lines = valid_lines,
+                                         device = device, num_return_sequences=1, # for valid, no topk needed
+                                          dataset_name = args.dataset_name, eqn_order=args.eqn_order,
+                                          batch_size=args.per_gpu_train_batch_size,
                                           add_tag = args.add_tag, gentag = args.gentag, ranktag = args.ranktag)
             test_end_time = time.time()
-            valid_acc = valid_acc / valid_total
+            valid_acc = valid_acc[1] / valid_total # Always use the first class as the positive class 
             result['valid_acc'] = valid_acc
+
+            # store test_preds into a json file
+            if args.debug_preds:
+                debug_file = os.path.join(args.output_dir,"debug-valid-preds.json")
+                with open(debug_file, "w", encoding="utf8") as fh:
+                    json.dump(valid_preds, fh, indent=4)
 
             wandb.log(result)
 
             if valid_acc > best_valid_acc:
                 best_valid_acc = valid_acc
                 best_valid_epoch = epoch
-                test_acc, test_total = test(model, tokenizer, device, test_lines, dataset_name=args.dataset_name,
-                                          eqn_order=args.eqn_order, batch_size=args.per_gpu_train_batch_size,
+                test_acc, test_total, test_preds = batch_test(model, tokenizer = tokenizer, lines = test_lines,
+                                         device = device, num_return_sequences=args.num_seq,
+                                          dataset_name = args.dataset_name, eqn_order=args.eqn_order,
+                                          batch_size=args.per_gpu_train_batch_size,
                                           add_tag = args.add_tag, gentag = args.gentag, ranktag = args.ranktag)
-                test_acc = test_acc / test_total
+                for k, acc in test_acc.items():
+                    test_acc[k] = acc / test_total
+
+                # store test_preds into a json file
+                if args.debug_preds:
+                    debug_file = os.path.join(args.output_dir,"debug-preds.json")
+                    with open(debug_file, "w", encoding="utf8") as fh:
+                        json.dump(test_preds, fh, indent=4)
 
                 logging.info("** ** * Saving fine-tuned model ** ** * ")
                 # Only save the model it-self
@@ -264,7 +292,8 @@ def train(args, tokenizer, device):
                 config.to_json_file(output_config_file)
                 tokenizer.save_pretrained(output_dir)
 
-            result['test_acc_at_best_valid'] = test_acc
+            for k, v in test_acc.items():
+                result['test_acc_at_best_valid_' + str(k)] = v
             result['best_valid_acc'] = best_valid_acc
             result['best_valid_epoch'] = best_valid_epoch
             result['train_epoch_time'] = train_end_time - train_start_time
@@ -281,37 +310,6 @@ def train(args, tokenizer, device):
 
     return global_step, tr_loss / global_step
 
-def test(model, tokenizer, device, lines, dataset_name, 
-         num_beam=10, num_return_sequences=1, 
-         eqn_order="infix", max_target_length=100, batch_size=8,
-         add_tag=False, gentag="[generate]", ranktag="[rank]"):
-    model = model.module if hasattr(model, "module") else model
-    model.eval()
-    acc = 0
-    total = len(lines)
-    assert eqn_order == "infix", "only infix is supported for now!"
-    for i, line in enumerate(tqdm(lines)):
-        if dataset_name == "svamp" or dataset_name == "mawps":
-            problem, label, numbers = extract_text_label(line, eqn_order)
-        else:
-            problem, label = line.strip().split("\t")
-        
-        problem = add_tag_tosent(problem, gentag, add_tag)
-        batch = tokenizer.prepare_seq2seq_batch(problem, src_lang=SRC_LANG, return_tensors="pt")
-        for k,v in batch.items():
-            batch[k] = v.to(device)
-        text = model.generate(**batch, decoder_start_token_id=tokenizer.lang_code_to_id["en_XX"],
-                              num_beams=num_beam, early_stopping=True, max_length=100, num_return_sequences=num_return_sequences)
-
-        text = tokenizer.batch_decode(text, skip_special_tokens=True)
-        assert len(text) == num_return_sequences
-        text = [clean_text(t) for t in text]
-
-        for candidate in text:
-            if is_equal(label, candidate, number_filler=True):
-                acc += 1
-                break
-    return acc, total
 
 def main(args):
     global SRC_LANG, TGT_LANG
@@ -344,7 +342,11 @@ def main(args):
     set_seed(args)
 
     # Load pretrained tokenizer
-    tokenizer = MBartTokenizer.from_pretrained(args.model_path, do_lower_case=args.do_lower_case)
+    try:
+        tokenizer = T5Tokenizer.from_pretrained(args.model_path, do_lower_case=args.do_lower_case)
+    except: # For CodeT5
+        tokenizer = AutoTokenizer.from_pretrained(args.model_path, do_lower_case=args.do_lower_case)
+
     new_tokens = ['<SEP>',] + [f"#{i}" for i in range(30)]
     tokenizer.add_tokens(new_tokens)
 
@@ -397,18 +399,21 @@ if __name__ == "__main__":
                         help="random seed for initialization")
     parser.add_argument("--local_rank", type=int, default=0,
                         help="For distributed training: local_rank")
-    parser.add_argument("--src_lang", default='zh_CN', type=str)
+    parser.add_argument("--src_lang", default='en_XX', type=str)
     parser.add_argument("--tgt_lang", default='en_XX', type=str)
-    # argument for distributed training a boolean flag
     parser.add_argument('--distributed', default=False,
                         action='store_true',
                         help='Use distributed training.')
     parser.add_argument('--dataset_name', default="svamp", type=str,
                         help='Use svamp/math23k dataset.', required=True)
+    parser.add_argument('--num_seq', type=int, default=10, required=False,
+                        help='Number of sequences to generate for topk calculation')
+    parser.add_argument('--eqn_order', default='prefix', type=str, required=True,
+                        help='Order of equation to generate')
     parser.add_argument('--data_limit', default=-1, type=int, required=True,
                         help='How much data to use for training. -1 for all data.')
-    parser.add_argument('--eqn_order', default='infix', type=str, required=True,
-                        help='Order of equation to generate')
+    parser.add_argument('--debug_preds', default=False, action='store_true',
+                        help='Store predictions in a json file or not')
     parser.add_argument('--fold', default=-1, type=int,
                         help='Which fold to use for training. -1 for all data/SVAMP')
     parser.add_argument(
@@ -418,10 +423,10 @@ if __name__ == "__main__":
         help="Ratio of train-validation splits when validation split is not given",
     )
     parser.add_argument("--add_tag", default=False,
-                        action="store_true", help= "Add a tag before the sentence [generate] or [rank]")
-    parser.add_argument("--gentag", default="[generate]", type=str,
-                        help= "Tag [generate] prepended for seq2seq task")
-    parser.add_argument("--ranktag", default="[rank]", type=str,
+                        action="store_true", help= "Add a tag before the sentence generate: or rank:")
+    parser.add_argument("--gentag", default="generate:", type=str,
+                        help= "Tag generate: prepended for seq2seq task")
+    parser.add_argument("--ranktag", default="rank:", type=str,
                         help= "Tag [rank] prepended for seq2seq task")
 
     args = parser.parse_args()
@@ -431,7 +436,8 @@ if __name__ == "__main__":
     else:
         valid_file_given = True
 
-    project_name = f"{Path(args.model_path).name}-mBART-newtrainval_{not valid_file_given}-{args.dataset_name}-n{args.data_limit}-{args.eqn_order}-src{args.max_source_length}-tgt{args.max_target_length}"
+    project_name = f"{Path(args.model_path).name}-t5-Tags{args.add_tag}-newtrainval_{not valid_file_given}-{args.dataset_name}-n{args.data_limit}-{args.eqn_order}-src{args.max_source_length}-tgt{args.max_target_length}"
+
     current_time = datetime.datetime.now()
     timestamp = current_time.strftime("%b_%d_%Y")
     args.output_dir = Path(args.output_dir).parent/f"{Path(args.output_dir).stem}_{timestamp}_{args.dataset_name}_{args.eqn_order}"
@@ -456,8 +462,8 @@ if __name__ == "__main__":
         wandb_dict = {}
     wandb.init(project=project_name, entity="thesismurali-self", **wandb_dict)
     wandb.config = vars(args)
-
     args.rank = int(os.getenv('RANK', '0'))
     args.world_size = int(os.getenv("WORLD_SIZE", '1'))
+    print(args)
     main(args)
 

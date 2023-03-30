@@ -40,9 +40,12 @@ from tqdm import tqdm, trange
 from transformers import T5ForConditionalGeneration, T5ForConditionalGeneration
 from transformers import (T5Tokenizer, AutoTokenizer, CONFIG_NAME,
                          WEIGHTS_NAME, AdamW, get_linear_schedule_with_warmup)
+
+import sys
+sys.path.append('../')
+
 from utils import read_json
 from data_utils import extract_text_label, create_newtrainval_splits
-
 from t5_inference_utils import batch_test
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
@@ -125,6 +128,10 @@ def train(args, tokenizer, device):
             valid_lines = f.readlines()
         with open(args.test_file) as f:
             test_lines = f.readlines()
+    
+    if args.debug_preds:
+        valid_lines = valid_lines[:args.data_limit]
+        test_lines = test_lines[:args.data_limit]
 
     model = T5ForConditionalGeneration.from_pretrained(args.model_path)
     model.resize_token_embeddings(len(tokenizer))

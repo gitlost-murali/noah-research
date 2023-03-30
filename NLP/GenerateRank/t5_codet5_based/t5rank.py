@@ -45,6 +45,10 @@ from transformers import (
 from transformers.models.mbart.modeling_mbart import shift_tokens_right
 
 import wandb
+
+import sys
+sys.path.append("..")
+
 from data_utils import extract_text_label, remove_invalid_equations, create_newtrainval_splits
 from exp_tree import corrupt_expression
 from t5_GenerateRankModel import MyT5ForSequenceClassificationAndGeneration

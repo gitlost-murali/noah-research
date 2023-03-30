@@ -30,7 +30,6 @@ import time
 from pathlib import Path
 import warnings
 
-import numpy as np
 import torch
 from torch.utils.data import Dataset
 from tqdm import tqdm, trange
@@ -184,7 +183,6 @@ class TextDataset(Dataset):
 
 def set_seed(args):
     random.seed(args.seed)
-    np.random.seed(args.seed)
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed_all(args.seed)
 

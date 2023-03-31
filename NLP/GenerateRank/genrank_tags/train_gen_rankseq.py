@@ -120,7 +120,6 @@ class TextDataset(Dataset):
     def prepare_data(self):
         lines = self.lines
         for i, item in enumerate(tqdm(lines, desc="Prepare train data")):
-
             prob, gen, correct, gt, cls_label = item["prob"], item["equations"], item["correct_answer"], item["gt"], item["cls_label"]
             # problem \t generated expression \t groundtruth \t rank_label
             # gen = [eq1, eq2, eq3, eq4, eq5]
@@ -425,8 +424,8 @@ def train(args, tokenizer, device):
             valid_acc = valid_acc / valid_total
             valid_acc_all = valid_acc_all / valid_total
 
-            with open(valid_output_file) as f:
-                valid_rank_lines = f.readlines()
+            with open(valid_output_file, "r") as f:
+                valid_rank_lines = json.load(f)
 
             if args.remove_invalid_eqns_manually:
                 valid_rank_lines = remove_invalid_equations(valid_rank_lines)
@@ -458,8 +457,8 @@ def train(args, tokenizer, device):
                 test_acc = test_acc / test_total
                 test_acc_all = test_acc_all / test_total
 
-                with open(test_output_file) as f:
-                    test_rank_lines = f.readlines()
+                with open(test_output_file, "r") as f:
+                    test_rank_lines = json.load(f)
 
                 if args.remove_invalid_eqns_manually:
                     test_rank_lines = remove_invalid_equations(test_rank_lines)
@@ -527,8 +526,8 @@ def train(args, tokenizer, device):
                 collect_data_to_trainfile(args)
             if args.distributed:
                 torch.distributed.barrier()
-            with open(args.collect_file) as f:
-                collect_lines = f.readlines()
+            with open(args.collect_file, "r") as f:
+                collect_lines = json.load(f)
             if args.rule_negatives:
                 collect_lines = add_rule_negatives(
                     collect_lines,
@@ -659,80 +658,54 @@ def generate_sample(model, tokenizer, dataloader, device, output_samples_file, a
     return samples_list
 
 
-def genrank_test(args, model, device, tokenizer, lines, pad_token_id):
+def genrank_test(args, model, device, tokenizer, lines, pad_token_id, num_beam=10):
     print("rank testing..........")
     model = model.module if hasattr(model, "module") else model
     model.eval()
     # group generated expressions as batches for each problem
     prob_prev = ""
-    all_batch = []
-    batch = []
     acc = 0
-    for i, line in enumerate(lines):
-        line_splited = line.strip().split("\t")
-        if len(line_splited) == 3:
-            prob, exp, label = line_splited
-        else:
-            prob, exp, label, groundtruth = line_splited
-        if (
-            prob != prob_prev
-        ):  # new problem begins. add batch to all_batch and reset batch.
-            prob_prev = prob
-            if i != 0:
-                all_batch.append(batch)
-            batch = []
+    for i, item in enumerate(lines):
+        prob, equations, gts, label = item["prob"], item["equations"], \
+                                      item["gt"], item["correct_answer"]
+
+        encoder_input = add_tag_tosent(prob, args.ranktag, args.add_tag)
+        encoder_input = add_rank_eqns(encoder_input, equations, args.add_tag)
+        correct_eqn = [eq for eq, clslabel in zip(equations, gts) if clslabel == 1]
 
         # add cur batch_encoding to batch
-        batch_encoding = tokenizer.prepare_seq2seq_batch(
+        batch = tokenizer.prepare_seq2seq_batch(
             src_texts=prob,
-            tgt_texts=exp,
             max_length=args.max_source_length,
             max_target_length=args.max_target_length,
             src_lang=args.src_lang,
-            tgt_lang=args.tgt_lang,
             padding="max_length",
             return_tensors="pt",
         )
 
-        batch_encoding["decoder_input_ids"] = shift_tokens_right(
-            batch_encoding["labels"], pad_token_id
+        for k, v in batch.items():
+            batch[k] = v.to(device)
+
+        text = model.generate(
+            **batch,
+            num_beams=num_beam,
+            early_stopping=True,
+            max_length=100,
+            num_return_sequences=1, # get only the best sequence
         )
-        # fix: replace first token with pad token instead of eos as per T5 docs
-        batch_encoding["decoder_input_ids"][0][0] = tokenizer.pad_token_id
 
-        for k, v in batch_encoding.items():
-            batch_encoding[k] = v.squeeze(0)
-        batch_encoding["cls_label"] = torch.tensor([1])
-        batch_encoding.pop("labels")
-        batch_encoding["answer_label"] = label
-        # fix: if no eos token in decoder input, add it
-        eos_mask = batch_encoding["decoder_input_ids"].eq(tokenizer.eos_token_id)
-        if not eos_mask.any(): batch_encoding["decoder_input_ids"][-1] = tokenizer.eos_token_id
+        text = tokenizer.batch_decode(text, skip_special_tokens=True)
+        text = [clean_text(t) for t in text]
 
-        batch.append(batch_encoding)
-    all_batch.append(batch)
+        for idx, candidate in enumerate(text):
+            if is_equal(label, candidate, number_filler=True):
+                hit_acc = True
+                if idx == 0:
+                    hit_1 = True
+                    acc += 1                
 
-    # now all_batch is a list of batches, we go through it and compute test accuracy
-    for i, batch_encoding in enumerate(tqdm(all_batch)):
-        keys = batch_encoding[0].keys()
-        batch = {}
-        for k in keys:
-            if k == "answer_label":
-                labels = [b[k] for b in batch_encoding]
-            else:
-                batch[k] = torch.stack([b[k] for b in batch_encoding]).to(device)
 
-        output = model(**batch)
-        output = output["cls_logits"]
-        output = torch.nn.functional.softmax(output)[:, 1]
-        index = torch.argmax(
-            output, dim=0
-        ).item()  # choose the top 1 as the predicted answer
-        if (
-            labels[index] == "1"
-        ):  # labels record whether this expression is positive or not
-            acc += 1
-    return acc * 100.0 / len(all_batch)
+    return acc * 100.0 / len(lines)
 
 
 def gen_test(
@@ -744,6 +717,9 @@ def gen_test(
     num_beam=10,
     num_return_sequences=10,
     test_file=None,
+    add_tag=False,
+    gentag="generate:",
+    ranktag="rank:"
 ):
     print("gen testing ........")
     model = model.module if hasattr(model, "module") else model
@@ -751,9 +727,18 @@ def gen_test(
     acc = acc_all = 0
     total = len(lines)
     rank_samples = []
+    rank_samples_list = []
     for i, item in enumerate(tqdm(lines)):
         problem, label, numbers = extract_text_label(item, eqn_order)
+
+        local_samples_list = {}
+        local_samples_list["prob"] = problem
+        local_samples_list["equations"] = []
+        local_samples_list["gt"] = []
+        local_samples_list["correct_answer"] = label
+
         hit_acc = hit_1 = False
+        problem = add_tag_tosent(problem=problem, tag=gentag, add_tag=add_tag)
         batch = tokenizer.prepare_seq2seq_batch(
             problem, src_lang=SRC_LANG, return_tensors="pt"
         )
@@ -778,13 +763,18 @@ def gen_test(
             rank_label = "1" if is_equal(label, candidate, number_filler=True) else "0"
             rank_samples.append([problem, candidate, rank_label, label])
 
+            local_samples_list["equations"].append(candidate)
+            local_samples_list["gt"].append(rank_label)
+        
+        rank_samples_list.append(local_samples_list)
+
         if hit_acc:
             acc_all += 1
         if hit_1:
             acc += 1
+
     with open(test_file, "w") as f:
-        for samp in rank_samples:
-            f.write("\t".join(samp) + "\n")
+        json.dump(rank_samples_list, f, indent=4)
 
     return acc, acc_all, total
 
@@ -1038,7 +1028,7 @@ if __name__ == "__main__":
     else:
         valid_file_given = True
 
-    project_name = f"reranker-{Path(args.output_dir).stem}-newtrainval_{not valid_file_given}-Freeze_seq2seq{args.freeze_seq2seq}-Manualremove_invalid_eqn{args.remove_invalid_eqns_manually}-{args.dataset_name}-n{args.data_limit}-{args.eqn_order}-src{args.max_source_length}-tgt{args.max_target_length}"
+    project_name = f"reranker_Tags{args.add_tag}-{Path(args.output_dir).stem}-t5newtrainval_{not valid_file_given}-Freeze_seq2seq{args.freeze_seq2seq}-Manualremove_invalid_eqn{args.remove_invalid_eqns_manually}-{args.dataset_name}-n{args.data_limit}-{args.eqn_order}-src{args.max_source_length}-tgt{args.max_target_length}"
 
     current_time = datetime.datetime.now()
     timestamp = current_time.strftime("%b_%d_%Y")

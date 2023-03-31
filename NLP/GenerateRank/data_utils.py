@@ -113,5 +113,15 @@ def add_tag_tosent(problem, tag, add_tag=False):
         problem = tag + " " + problem
     return problem
 
+def add_rank_eqns(problem, list_of_eqns, add_tag=False):
+    """
+    Add a tag to a problem.
+    """
+    if add_tag:
+        problem = problem + ". Re-rank the following equations to select the best equation: " + " ; ".join(list_of_eqns)
+    return problem
+
+
+
 if __name__ == "__main__":
     test_convert_string()

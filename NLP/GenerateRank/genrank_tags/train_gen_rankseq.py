@@ -28,6 +28,7 @@ import random
 import sys
 import time
 from pathlib import Path
+import json
 import warnings
 
 import numpy as np
@@ -40,6 +41,7 @@ from transformers import (
     AdamW,
     T5Config,
     T5Tokenizer,
+    T5ForConditionalGeneration,
     get_linear_schedule_with_warmup,
 )
 from transformers.models.mbart.modeling_mbart import shift_tokens_right
@@ -49,9 +51,11 @@ import wandb
 import sys
 sys.path.append("..")
 
-from data_utils import extract_text_label, remove_invalid_equations, create_newtrainval_splits
+sys.path.append("../t5_codet5_based/")
+
+from data_utils import extract_text_label, remove_invalid_equations,\
+                       create_newtrainval_splits, add_tag_tosent, add_rank_eqns
 from exp_tree import corrupt_expression
-from t5_GenerateRankModel import MyT5ForSequenceClassificationAndGeneration
 from t5_inference_utils import GeneralDataset
 from utils import clean_text, is_equal, read_json
 
@@ -82,29 +86,32 @@ def add_rule_negatives(lines, add_num=10, all_expressions=None):
     all_lines = []
     prev_prob = ""
     for line in lines:
-        prob, gen, correct, cls_label = line.strip().split("\t")
-        if prob != prev_prob:  # new prob begins here! generate rule negatives
-            prev_prob = prob
-            for _ in range(add_num):
-                try:
-                    rule_neg = corrupt_expression(correct)
-                    this_label = (
-                        "1" if is_equal(correct, rule_neg, number_filler=True) else "0"
-                    )
-                    all_lines.append(
-                        "\t".join([prob, rule_neg, correct, this_label]) + "\n"
-                    )
-                except:
-                    print("error??")
-                    print(correct)
+        correct = line["correct_answer"]
+        prob = line["prob"]
+        for _ in range(add_num):
+            try:
+                rule_neg = corrupt_expression(correct)
+                this_label = (
+                    "1" if is_equal(correct, rule_neg, number_filler=True) else "0"
+                )
+                line["equations"].append(rule_neg)
+                line["gt"].append(this_label)
+            except:
+                print("error??")
+                print(correct)
+
         all_lines.append(line)
     return all_lines
 
 
 class TextDataset(Dataset):
-    def __init__(self, tokenizer, lines, max_source_length, max_target_length):
+    def __init__(self, tokenizer, lines, max_source_length, max_target_length,
+                 add_tag, gentag, ranktag):
         self.max_source_length = max_source_length
         self.max_target_length = max_target_length
+        self.add_tag = add_tag
+        self.gentag = gentag
+        self.ranktag = ranktag
         self.lines = lines
         self.tokenizer = tokenizer
         self.features = {}
@@ -112,16 +119,17 @@ class TextDataset(Dataset):
 
     def prepare_data(self):
         lines = self.lines
-        for i, line in enumerate(tqdm(lines, desc="Prepare train data")):
+        for i, item in enumerate(tqdm(lines, desc="Prepare train data")):
 
-            items = line.strip().split("\t")
-
-            prob, gen, correct, cls_label = items[0], items[1], items[2], items[3]
+            prob, gen, correct, gt, cls_label = item["prob"], item["equations"], item["correct_answer"], item["gt"], item["cls_label"]
             # problem \t generated expression \t groundtruth \t rank_label
+            # gen = [eq1, eq2, eq3, eq4, eq5]
+            # gt = [1,0,0,0,1]
 
             if cls_label == "-1":  # prepare data for generate and revise
-                assert gen == "<mask>"
+                # assert gen == "<mask>"
                 encoder_input = prob
+                encoder_input = add_tag_tosent(encoder_input, self.gentag, self.add_tag)
                 decoder_input = correct
                 batch_encoding = self.tokenizer.prepare_seq2seq_batch(
                     src_texts=encoder_input,
@@ -133,17 +141,19 @@ class TextDataset(Dataset):
                     padding="max_length",
                     return_tensors="pt",
                 )
-                batch_encoding["decoder_input_ids"] = shift_tokens_right(
-                    batch_encoding["labels"], pad_token_id=self.tokenizer.pad_token_id
-                )
-                # fix: replace first token with pad token instead of eos as per T5 docs
-                batch_encoding["decoder_input_ids"][0][0] = self.tokenizer.pad_token_id
+
                 for k, v in batch_encoding.items():
                     batch_encoding[k] = v.squeeze(0)
-                batch_encoding["cls_label"] = torch.tensor([-100])
             else:  # prepare data for rank function
                 encoder_input = prob
-                decoder_input = gen
+                encoder_input = add_tag_tosent(encoder_input, self.ranktag, self.add_tag)
+                encoder_input = add_rank_eqns(encoder_input, gen, self.add_tag)
+                correct_eqn = [eq for eq, clslabel in zip(gen, gt) if clslabel == 1]
+                try:
+                    decoder_input = correct_eqn[0]
+                except:
+                    raise ValueError("correct_eqn is empty")
+                    decoder_input = correct
                 batch_encoding = self.tokenizer.prepare_seq2seq_batch(
                     src_texts=encoder_input,
                     tgt_texts=decoder_input,
@@ -154,21 +164,9 @@ class TextDataset(Dataset):
                     padding="max_length",
                     return_tensors="pt",
                 )
-                batch_encoding["decoder_input_ids"] = shift_tokens_right(
-                    batch_encoding["labels"], pad_token_id=self.tokenizer.pad_token_id
-                )
-                # fix: replace first token with pad token instead of eos as per T5 docs
-                batch_encoding["decoder_input_ids"][0][0] = self.tokenizer.pad_token_id
+
                 for k, v in batch_encoding.items():
                     batch_encoding[k] = v.squeeze(0)
-                batch_encoding["labels"] = torch.full_like(
-                    batch_encoding["labels"], -100
-                )
-                batch_encoding["cls_label"] = torch.tensor([int(cls_label)])
-
-            # fix: if no eos token in decoder input, add it
-            eos_mask = batch_encoding["decoder_input_ids"].eq(self.tokenizer.eos_token_id)
-            if not eos_mask.any(): batch_encoding["decoder_input_ids"][-1] = self.tokenizer.eos_token_id
 
             self.features[i] = batch_encoding
 
@@ -191,14 +189,11 @@ def collect_data_to_trainfile(args):
     samples = []
     for i in range(args.world_size):
         output_samples_file = os.path.join(args.output_dir, f"gen_samples_{i}.train")
-        with open(output_samples_file) as f:
-            lines = f.readlines()
-            for line in lines:
-                samples.append(line)
+        with open(output_samples_file, "r") as f:
+            samples = json.load(f)
     print("writing in collect")
     with open(args.collect_file, "w") as f:
-        for line in samples:
-            f.write(line)
+        json.dump(samples, f, indent=4)
     print("write done")
 
 
@@ -250,13 +245,7 @@ def train(args, tokenizer, device):
         test_lines = test_lines[: args.data_limit]
 
     print(f"load model from {args.model_path}")
-    config = T5Config.from_pretrained(args.model_path)
-    config.num_labels = 2
-    config.id2label = {"0": "LABEL_0", "1": "LABEL_1"}
-    config.label2id = {"LABEL_0": 0, "LABEL_1": 1}
-    model = MyT5ForSequenceClassificationAndGeneration(
-        modelpath=args.model_path, config=config, d_model=config.d_model, num_labels=2
-    )
+    model = T5ForConditionalGeneration.from_pretrained(args.model_path)
     model.resize_token_embeddings(len(tokenizer))
     print("model load done")
 
@@ -291,14 +280,15 @@ def train(args, tokenizer, device):
     if args.distributed:
         torch.distributed.barrier()
     with open(args.collect_file) as f:
-        collect_lines = f.readlines()
+        collect_lines = json.load(f)
     all_expressions = None
     if args.rule_negatives:
         collect_lines = add_rule_negatives(
             collect_lines, add_num=args.num_negatives, all_expressions=all_expressions
         )
     train_dataset = TextDataset(
-        tokenizer, collect_lines, args.max_source_length, args.max_target_length
+        tokenizer, collect_lines, args.max_source_length, args.max_target_length,
+        args.add_tag, args.gentag, args.ranktag
     )
 
     if args.distributed:
@@ -360,7 +350,7 @@ def train(args, tokenizer, device):
 
     # Train!
     global_step = 0
-    tr_loss = tr_cls_loss = tr_mlm_loss = 0.0
+    tr_loss = 0.0
 
     epoch = 0
     model.zero_grad()
@@ -381,28 +371,12 @@ def train(args, tokenizer, device):
                     inputs[k] = v.to(device)
 
             model.train()
-            if args.freeze_seq2seq:
-                inputs["freeze_seq2seq"] = True
             outputs = model(**inputs)
 
-            mlm_loss = outputs.get("loss", None) if args.freeze_seq2seq else outputs["loss"]
-            cls_loss = outputs["cls_loss"]
-            if not args.freeze_seq2seq and torch.isnan(mlm_loss):
-                mlm_loss = None
-
-            mlm_loss = (
-                mlm_loss.mean() if mlm_loss is not None else torch.tensor(0)
-            )  # mean() to average on multi-gpu parallel training
-            cls_loss = (
-                cls_loss.mean() if cls_loss is not None else torch.tensor(0)
-            )  # mean() to average on multi-gpu parallel training
-            loss = mlm_loss + cls_loss
-
+            loss = outputs["loss"] if isinstance(outputs, dict) else outputs[0]
+            loss = loss.mean()  # mean() to average on multi-gpu parallel training
             loss.backward()
-
             tr_loss += loss.item()
-            tr_cls_loss += cls_loss.item()
-            tr_mlm_loss += mlm_loss.item()
             torch.nn.utils.clip_grad_norm_(model.parameters(), args.max_grad_norm)
             optimizer.step()
             scheduler.step()  # Update learning rate schedule
@@ -412,11 +386,9 @@ def train(args, tokenizer, device):
             if global_step % args.logging_steps == 0 and args.rank == 0:
                 result = {}
                 result["train_loss"] = tr_loss / args.logging_steps
-                result["mlm_loss"] = tr_mlm_loss / args.logging_steps
-                result["cls_loss"] = tr_cls_loss / args.logging_steps
                 result["global_step"] = global_step
                 result["epoch"] = epoch
-                tr_loss = tr_mlm_loss = tr_cls_loss = 0.0
+                tr_loss = 0.0
                 with open(output_logging_file, "a") as writer:
                     logger.info("***** Eval results *****")
                     for key in sorted(result.keys()):
@@ -566,7 +538,8 @@ def train(args, tokenizer, device):
             if args.remove_invalid_eqns_manually:
                 collect_lines = remove_invalid_equations(collect_lines)
             train_dataset = TextDataset(
-                tokenizer, collect_lines, args.max_source_length, args.max_target_length
+                tokenizer, collect_lines, args.max_source_length, args.max_target_length,
+                args.add_tag, args.gentag, args.ranktag
             )
             if args.distributed:
                 train_sampler = torch.utils.data.distributed.DistributedSampler(
@@ -590,6 +563,7 @@ def generate_sample(model, tokenizer, dataloader, device, output_samples_file, a
     generate negative samples using the model for revise training
     """
     samples = []
+    samples_list = []
     if args.use_generate_sample:
         model = model.module if hasattr(model, "module") else model
         model.eval()
@@ -597,6 +571,7 @@ def generate_sample(model, tokenizer, dataloader, device, output_samples_file, a
         for data in tqdm(dataloader):
             prob, label = data["prob"], data["label"]
             gen_prob = prob
+            gen_prob = [add_tag_tosent(problem = mwp, tag = args.gentag, add_tag=args.add_tag) for mwp in gen_prob]
             batch = tokenizer.prepare_seq2seq_batch(gen_prob, return_tensors="pt")
             for k, v in batch.items():
                 batch[k] = v.to(device)
@@ -614,23 +589,58 @@ def generate_sample(model, tokenizer, dataloader, device, output_samples_file, a
             label = [clean_text(t) for t in label]
 
             idx = 0
+
             for p, e in zip(prob, label):
+                local_samples_list = dict()
+                local_samples_list["prob"] = p
+                local_samples_list["equations"] = []
+                local_samples_list["gt"] = []
+                local_samples_list["correct_answer"] = e
+
                 samples.append((p, "<mask>", e, 0))
                 samples.append((p, e, e, 1))
                 beam = text[idx * beam_size : (idx + 1) * beam_size]
                 for b in beam:
                     if is_equal(e, b, number_filler=True):
                         samples.append((p, b, b, 1))
+                        local_samples_list["equations"].append(b)
+                        local_samples_list["gt"].append(1)
                     else:
                         samples.append((p, b, e, 0))
+                        local_samples_list["equations"].append(b)
+                        local_samples_list["gt"].append(0)
+                
+                local_samples_list["cls_label"] = 1
+                samples_list.append(local_samples_list)
+                local_samples_list["cls_label"] = -1
+                samples_list.append(local_samples_list)
                 idx += 1
     else:
         for data in tqdm(dataloader):
             prob, label = data["prob"], data["label"]
+            prob = [add_tag_tosent(problem = mwp, tag = args.gentag, add_tag=args.add_tag) for mwp in prob]
             label = [clean_text(t) for t in label]
             for p, e in zip(prob, label):
+                local_samples_list = dict()
+                local_samples_list["prob"] = p
+                local_samples_list["equations"] = []
+                local_samples_list["gt"] = []
+                local_samples_list["correct_answer"] = e
+
+                local_samples_list["equations"].append("<mask>")
+                local_samples_list["gt"].append(0)
+
+                
+                local_samples_list["equations"].append(e)
+                local_samples_list["gt"].append(1)
                 samples.append((p, "<mask>", e, 0))
                 samples.append((p, e, e, 1))
+
+                local_samples_list["cls_label"] = -1
+                samples_list.append(local_samples_list)
+
+                local_samples_list["cls_label"] = 1
+                samples_list.append(local_samples_list)
 
     with open(output_samples_file, "w") as f:
         for sample in samples:
@@ -643,7 +653,10 @@ def generate_sample(model, tokenizer, dataloader, device, output_samples_file, a
                     f"{sample[0]}\t{sample[1]}\t{sample[2]}\t-1\n"
                 )  # for generation
 
-    return samples
+    with open(output_samples_file, "w") as f:
+        json.dump(samples_list, f, indent=4)
+
+    return samples_list
 
 
 def genrank_test(args, model, device, tokenizer, lines, pad_token_id):
@@ -1008,6 +1021,14 @@ if __name__ == "__main__":
         type=float,
         help="Ratio of train-validation splits when validation split is not given",
     )
+    parser.add_argument("--add_tag", default=False,
+                        action="store_true", help= "Add a tag before the sentence generate: or rank:")
+    parser.add_argument("--gentag", default="generate:", type=str,
+                        help= "Tag generate: prepended for seq2seq task")
+    parser.add_argument("--ranktag", default="rank:", type=str,
+                        help= "Tag [rank] prepended for seq2seq task")
+
+
     args = parser.parse_args()
     args.rank = int(os.getenv("RANK", "0"))
     args.world_size = int(os.getenv("WORLD_SIZE", "1"))

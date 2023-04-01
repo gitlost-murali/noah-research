@@ -341,6 +341,8 @@ def train(args, tokenizer, device):
                         writer.write("%s = %s\n" % (key, str(result[key])))
                     writer.write("\n")
 
+                wandb.log(result)
+
         # epoch end
         train_end_time = time.time()
         if args.rank == 0 and epoch % args.test_per_epoch == 0:
@@ -368,6 +370,9 @@ def train(args, tokenizer, device):
             result['valid_acc'] = valid_acc
             result['valid_acc_all'] = valid_acc_all
             result['valid_rank_acc'] = valid_rank_acc
+
+            wandb.log(result)
+
             if (valid_rank_acc > best_valid_acc):
                 best_valid_acc = valid_acc if valid_rank_acc == -1 else valid_rank_acc
                 best_valid_epoch = epoch
@@ -410,6 +415,8 @@ def train(args, tokenizer, device):
             result['best_valid_epoch'] = best_valid_epoch
             result['train_epoch_time'] = train_end_time - train_start_time
             result['test_time'] = test_end_time - test_start_time
+
+            wandb.log(result)
 
             with open(output_logging_file, "a") as writer:
                 logger.info("***** Eval results *****")

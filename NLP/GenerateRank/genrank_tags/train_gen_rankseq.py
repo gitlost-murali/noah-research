@@ -151,7 +151,7 @@ class TextDataset(Dataset):
                 try:
                     decoder_input = correct_eqn[0]
                 except:
-                    raise ValueError("correct_eqn is empty")
+                    print("correct_eqn is empty")
                     decoder_input = correct
                 batch_encoding = self.tokenizer.prepare_seq2seq_batch(
                     src_texts=encoder_input,

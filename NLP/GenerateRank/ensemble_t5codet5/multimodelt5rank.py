@@ -391,8 +391,8 @@ def train(args, tokenizer_t5, tokenizer_codet5, device):
             if args.freeze_seq2seq:
                 inputs["freeze_seq2seq"] = True
 
-            outputs = model(t5_batch=inputs["t5_batch"],
-                            codet5_batch=inputs["codet5_batch"],
+            outputs = model(t5_batch=inputs["t5_batch"].to(device),
+                            codet5_batch=inputs["codet5_batch"].to(device),
                             freeze_seq2seq=inputs.get("freeze_seq2seq", False))
 
             mlm_loss = outputs.get("loss", None) if args.freeze_seq2seq else outputs["loss"]

@@ -266,7 +266,9 @@ def train(args, tokenizer_t5, tokenizer_codet5, device):
 
     config = model.config
     model.to(device)
-
+    model.model.to(device)
+    model.codemodel.to(device)
+    
     # model size
     size = 0
     for n, p in model.named_parameters():

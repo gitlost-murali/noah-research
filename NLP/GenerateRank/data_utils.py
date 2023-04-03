@@ -89,6 +89,75 @@ def remove_invalid_equations(collect_lines):
             pass
     return only_valid
 
+import re
+
+# Function to check if the infix equation is valid
+def check_valid_equation(eqn):
+    """
+    (2/1) -> True
+    (2/0) -> True
+    (2/1) + (2/0) -> True
+    (2/1) ++ (2/0) -> False
+    2 -* 3 -> False
+    2 + 3 -> True
+    2 % 2 -> True
+    2 + 3 + 4 -> True
+    4 % 1 -> True
+    """
+    eqn = eqn.replace("%", "/")
+    # Check for invalid characters
+    if re.search(r"[^0-9\+\-\*\/\(\)\s]", eqn): return False
+    # Check for invalid number of parantheses
+    if eqn.count("(") != eqn.count(")"): return False
+    # Check for invalid number of operators
+    if re.search(r"\d+\s*[\+\-\*\/]\s*\d+", eqn): return True
+    return False
+
+def check_invalid_numberinst(eqn, numbers_in_prob):
+    """
+    Check for cases like number01 or number012343
+    Problem is, if you do replace "number0" in "number01" with 8, 
+    you get 81 which is not a valid answer
+    """
+    numbers_in_eqn = re.findall(r"\S*number\S+", eqn)
+    for num in numbers_in_eqn:
+        if num not in numbers_in_prob: return True
+    return False
+
+def remove_invalid_equations_genranktags(collect_lines):
+    """
+    Remove equations that are invalid for calculations (e.g. 1/0 or incorrect number of parantheses)
+    """
+    only_valid = []
+    for item in collect_lines:
+        # regex to get number0, number1, number2 from "line"
+        line = item["prob"]
+        numbers_in_prob = re.findall(r"number\d+", line)
+        numbers_to_fill = [str(random.randint(0, 10)) for _ in range(len(numbers_in_prob))]
+        numbers2fill = dict(zip(numbers_in_prob, numbers_to_fill)) # map number0 -> 5, number1 -> 3, etc.
+        gen_eqns = item["equations"]
+        gts = item["gt"]
+        filtered_eqns = []
+        filtered_eqns_gts = []
+        for gen_eq, gt in zip(gen_eqns, gts):
+            gen_eq_eval = gen_eq
+            try:
+                assert not check_invalid_numberinst(gen_eq_eval, numbers_in_prob)
+                for key, value in numbers2fill.items(): gen_eq_eval = gen_eq_eval.replace(key, value)
+                assert "#" not in gen_eq_eval
+                assert check_valid_equation(gen_eq_eval)
+                _ = float(eval(gen_eq_eval))
+                filtered_eqns.append(gen_eq)
+                filtered_eqns_gts.append(gt)
+            except:
+                pass
+        item["old_equations"] = gen_eqns
+        item["equations"] = filtered_eqns
+        item["gt"] = filtered_eqns_gts
+        only_valid.append(item)
+
+    return only_valid
+
 def create_newtrainval_splits(args, split_ratio=0.85):
     """
     Create new train and val splits from the original train file.

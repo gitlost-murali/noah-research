@@ -54,7 +54,7 @@ sys.path.append("..")
 
 sys.path.append("../t5_codet5_based/")
 
-from data_utils import extract_text_label, remove_invalid_equations,\
+from data_utils import extract_text_label, remove_invalid_equations_genranktags,\
                        create_newtrainval_splits, add_tag_tosent, add_rank_eqns
 from exp_tree import corrupt_expression
 from t5_inference_utils import GeneralDataset
@@ -429,7 +429,7 @@ def train(args, tokenizer, device):
                 valid_rank_lines = json.load(f)
 
             if args.remove_invalid_eqns_manually:
-                valid_rank_lines = remove_invalid_equations(valid_rank_lines)
+                valid_rank_lines = remove_invalid_equations_genranktags(valid_rank_lines)
             valid_rank_acc = genrank_test(
                 args, model, device, tokenizer, valid_rank_lines, tokenizer.pad_token_id
             )
@@ -462,7 +462,7 @@ def train(args, tokenizer, device):
                     test_rank_lines = json.load(f)
 
                 if args.remove_invalid_eqns_manually:
-                    test_rank_lines = remove_invalid_equations(test_rank_lines)
+                    test_rank_lines = remove_invalid_equations_genranktags(test_rank_lines)
                 test_rank_acc = genrank_test(
                     args,
                     model,
@@ -536,7 +536,7 @@ def train(args, tokenizer, device):
                     all_expressions=all_expressions,
                 )
             if args.remove_invalid_eqns_manually:
-                collect_lines = remove_invalid_equations(collect_lines)
+                collect_lines = remove_invalid_equations_genranktags(collect_lines)
             train_dataset = TextDataset(
                 tokenizer, collect_lines, args.max_source_length, args.max_target_length,
                 args.add_tag, args.gentag, args.ranktag
@@ -1031,7 +1031,7 @@ if __name__ == "__main__":
     else:
         valid_file_given = True
 
-    project_name = f"reranker_Tags{args.add_tag}-{Path(args.output_dir).stem}-t5newtrainval_{not valid_file_given}-Freeze_seq2seq{args.freeze_seq2seq}-Manualremove_invalid_eqn{args.remove_invalid_eqns_manually}-{args.dataset_name}-n{args.data_limit}-{args.eqn_order}-src{args.max_source_length}-tgt{args.max_target_length}"
+    project_name = f"ranker_Tags{args.add_tag}-{Path(args.output_dir).stem}-t5newtrainval_{not valid_file_given}-Freeze{args.freeze_seq2seq}-Manualrmv_invalid_eqn{args.remove_invalid_eqns_manually}-{args.dataset_name}-n{args.data_limit}-{args.eqn_order}-src{args.max_source_length}-tgt{args.max_target_length}"
 
     current_time = datetime.datetime.now()
     timestamp = current_time.strftime("%b_%d_%Y")

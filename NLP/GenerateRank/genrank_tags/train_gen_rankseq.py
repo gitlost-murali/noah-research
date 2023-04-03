@@ -41,6 +41,7 @@ from transformers import (
     AdamW,
     T5Config,
     T5Tokenizer,
+    AutoTokenizer,
     T5ForConditionalGeneration,
     get_linear_schedule_with_warmup,
 )
@@ -829,8 +830,10 @@ def main(args):
             args.model_path, do_lower_case=args.do_lower_case
         )
     except:
-        raise ValueError("Tokenizer not found. Please check the model path.")
+        tokenizer = AutoTokenizer.from_pretrained(args.model_path, do_lower_case=args.do_lower_case)
         # tokenizer = AutoTokenizer.from_pretrained("Salesforce/codet5-large-ntp-py", do_lower_case=args.do_lower_case)
+        print("Tokenizer not found. Please check the model path.")
+
     new_tokens = [f"#{i}" for i in range(30)]
     tokenizer.add_tokens(new_tokens)
 

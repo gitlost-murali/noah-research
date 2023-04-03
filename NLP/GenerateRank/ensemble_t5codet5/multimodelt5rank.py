@@ -1088,7 +1088,7 @@ if __name__ == "__main__":
     else:
         valid_file_given = True
 
-    project_name = f"reranker-{Path(args.output_dir).stem}-newtrainval_{not valid_file_given}-Freeze_seq2seq{args.freeze_seq2seq}-Manualremove_invalid_eqn{args.remove_invalid_eqns_manually}-{args.dataset_name}-n{args.data_limit}-{args.eqn_order}-src{args.max_source_length}-tgt{args.max_target_length}"
+    project_name = f"ranker-{Path(args.output_dir).stem}-newtrainval_{not valid_file_given}-Freeze{args.freeze_seq2seq}-rm_invaleqns{args.remove_invalid_eqns_manually}-{args.dataset_name}-n{args.data_limit}-{args.eqn_order}-src{args.max_source_length}-tgt{args.max_target_length}"
 
     current_time = datetime.datetime.now()
     timestamp = current_time.strftime("%b_%d_%Y")

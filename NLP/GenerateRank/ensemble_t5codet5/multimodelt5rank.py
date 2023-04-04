@@ -654,6 +654,7 @@ def generate_sample(model, tokenizer_t5, tokenizer_codet5,
                     if is_equal(e, b, number_filler=True):
                         samples.append((p, b, b, 1))
                     else:
+                        b = b.replace("\n", "")
                         samples.append((p, b, e, 0))
                 idx += 1
     else:

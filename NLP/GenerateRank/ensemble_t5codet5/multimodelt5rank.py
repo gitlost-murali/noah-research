@@ -826,7 +826,7 @@ def gen_test(
                 if idx == 0:
                     hit_1 = True
             rank_label = "1" if is_equal(label, candidate, number_filler=True) else "0"
-            rank_samples.append([problem, candidate, rank_label, label])
+            rank_samples.append([problem, candidate.replace("\n",""), rank_label, label])
 
         if hit_acc:
             acc_all += 1

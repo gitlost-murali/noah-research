@@ -31,7 +31,7 @@ from typing import List
 # In[4]:
 
 
-from rankgen import RankGenEncoder, RankGenGenerator
+from rankgen import RankGenEncoder
 
 rankgen_encoder = RankGenEncoder("kalpeshk2011/rankgen-t5-xl-all")
 

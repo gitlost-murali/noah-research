@@ -182,9 +182,9 @@ print(f"Math eqn accuracy is {math_eqn_acc}")
 
 print(f"Natural eqn accuracy is {natural_eqn_acc}")
 
-print(f"Numbers in eqn accuracy is {natural_eqn_acc}")
+print(f"Numbers in eqn accuracy is {number_natural_scores}")
 
-print(f"Natural Numbers in eqn accuracy is {natural_eqn_acc}")
+print(f"Natural Numbers in eqn accuracy is {naturalnumber_eqn_acc}")
 # In[ ]:
 
 

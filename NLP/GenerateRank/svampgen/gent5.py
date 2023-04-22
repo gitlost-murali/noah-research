@@ -5,7 +5,7 @@ from tqdm import tqdm
 
 train_file = "../data/mawps_asdiv-a_svamp/trainset_nodup.json"
 model_path = "/scratch/s5397294/svamp_t5_batch_output/generator_Mar_31_2023_svamp_infix/saved_model/"
-outfile = "train_t5_preds.json"
+outfile = "traint5_preds.json"
 
 from transformers import T5Config, T5Tokenizer
 
@@ -17,8 +17,7 @@ sys.path.append("../")
 from utils import read_json, clean_text, is_equal
 from data_utils import extract_text_label
 
-print(torch.cuda.is_available())
-device = torch.device("cpu")
+device = torch.device("cuda")
 
 from torch.utils.data import Dataset
 

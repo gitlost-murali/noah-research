@@ -115,8 +115,7 @@ def main():
             equations_encoded = torch.stack(equation_embeddings, dim=1)
 
             # Compute the contrastive loss
-            loss = contrastive_loss(mwp_encoded, equations_encoded, gt)
-            print(f"loss is {loss}")
+            loss = contrastive_loss(mwp_encoded, equations_encoded, gt.to(device))
 
             # Backpropagate and update the weights
             loss.backward()
@@ -138,7 +137,7 @@ def main():
                 equations_encoded = torch.stack(equation_embeddings, dim=1)
 
                 # Compute the contrastive loss for the validation set
-                val_loss = contrastive_loss(mwp_encoded, equations_encoded, gt)
+                val_loss = contrastive_loss(mwp_encoded, equations_encoded, gt.to(device))
                 total_val_loss += val_loss.item()
 
         print(f"Validation Epoch {epoch+1}, Loss: {total_val_loss / len(val_loader)}")

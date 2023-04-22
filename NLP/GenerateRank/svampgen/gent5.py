@@ -47,6 +47,7 @@ def generate_sample(model, tokenizer, dataloader, device):
     samples = []
     model = model.module if hasattr(model, "module") else model
     model.eval()
+    samples_list = []
     beam_size = 10
     for data in tqdm(dataloader):
         prob, label = data["prob"], data["label"]
@@ -69,7 +70,6 @@ def generate_sample(model, tokenizer, dataloader, device):
 
         idx = 0
         
-        samples_list = []
 
         for p, e in zip(prob, label):
             local_samples_list = dict()

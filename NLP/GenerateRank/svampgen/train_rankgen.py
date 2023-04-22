@@ -69,6 +69,7 @@ def main():
     device = torch.device(args.device)
     trainfile = args.trainfile
     valfile = args.valfile
+    batch_size = args.batch_size
 
     assert model_path in ["kalpeshk2011/rankgen-t5-xl-all", "kalpeshk2011/rankgen-t5-xl-pg19", "kalpeshk2011/rankgen-t5-base-all", "kalpeshk2011/rankgen-t5-large-all"]
     if model_size is None:
@@ -92,8 +93,8 @@ def main():
     train_dataset = MathWordProblemDataset(train_problems, tokenizer, device)
     val_dataset = MathWordProblemDataset(val_problems, tokenizer, device)
 
-    train_loader = DataLoader(train_dataset, batch_size=2, shuffle=True, num_workers=0)
-    val_loader = DataLoader(val_dataset, batch_size=2, shuffle=False, num_workers=0)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
 
 
     optimizer = optim.AdamW(model.parameters(), lr=5e-6)

@@ -36,9 +36,13 @@ def contrastive_loss(problems_embeddings, equations_embeddings, gt, temperature=
     scores = torch.matmul(problems_embeddings, equations_embeddings.transpose(1, 2)) / temperature
     scores = scores.squeeze(1)
     logits = torch.sigmoid(scores)
+    max_indices = logits.argmax(dim=1)
+    preds = gt[torch.arange(len(gt)), max_indices]
+    # calculate the number of 1's in x
+    preds_corrected = (preds == 1).sum()
     # Compute the loss using binary cross-entropy
     loss = torch.nn.BCELoss()(logits, gt)        
-    return loss
+    return loss, preds_corrected
 
 def load_json(path):
     with open(path) as f:
@@ -105,6 +109,7 @@ def main():
         model.train()
         total_loss = 0.0
         step = 0
+        train_acc = 0
         for mwp_input, equations_input, gt in tqdm(train_loader):
             step += 1
             optimizer.zero_grad()
@@ -118,7 +123,8 @@ def main():
             equations_encoded = torch.stack(equation_embeddings, dim=1)
 
             # Compute the contrastive loss
-            loss = contrastive_loss(mwp_encoded, equations_encoded, gt.to(device))
+            loss, bz_num_corrected = contrastive_loss(mwp_encoded, equations_encoded, gt.to(device))
+            train_acc += bz_num_corrected
 
             # Backpropagate and update the weights
             loss.backward()
@@ -129,11 +135,12 @@ def main():
 
             total_loss += loss.item()
 
-        print(f"Epoch {epoch+1}, Loss: {total_loss / len(train_loader)}")
+        print(f"Epoch {epoch+1}, Loss: {total_loss / len(train_loader)}, acc: {train_acc / len(train_dataset)}")
 
         # Evaluate the model on the validation set
         model.eval()
         total_val_loss = 0.0
+        val_acc = 0
         with torch.inference_mode():
             for mwp_input, equations_input, gt in val_loader:
                 mwp_input = squeeze_batch(mwp_input)
@@ -143,10 +150,12 @@ def main():
                 equations_encoded = torch.stack(equation_embeddings, dim=1)
 
                 # Compute the contrastive loss for the validation set
-                val_loss = contrastive_loss(mwp_encoded, equations_encoded, gt.to(device))
+                val_loss, bzval_num_corrected = contrastive_loss(mwp_encoded, equations_encoded, gt.to(device))
+                val_acc += bzval_num_corrected
+
                 total_val_loss += val_loss.item()
 
-        print(f"Validation Epoch {epoch+1}, Loss: {total_val_loss / len(val_loader)}")
+        print(f"Validation Epoch {epoch+1}, Loss: {total_val_loss / len(val_loader)}, acc: {val_acc / len(val_dataset)}")
 
 if __name__ == "__main__":
     main()

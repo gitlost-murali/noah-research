@@ -70,6 +70,7 @@ def main():
     trainfile = args.trainfile
     valfile = args.valfile
     batch_size = args.batch_size
+    num_epochs = args.epochs
 
     assert model_path in ["kalpeshk2011/rankgen-t5-xl-all", "kalpeshk2011/rankgen-t5-xl-pg19", "kalpeshk2011/rankgen-t5-base-all", "kalpeshk2011/rankgen-t5-large-all"]
     if model_size is None:
@@ -97,14 +98,15 @@ def main():
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
 
 
-    optimizer = optim.AdamW(model.parameters(), lr=5e-6)
-    num_epochs = 10
+    optimizer = optim.AdamW(model.parameters(), lr=args.lr)
 
     # Training loop
     for epoch in range(num_epochs):
         model.train()
         total_loss = 0.0
+        step = 0
         for mwp_input, equations_input, gt in tqdm(train_loader):
+            step += 1
             optimizer.zero_grad()
 
             # Encode the MWP
@@ -121,6 +123,9 @@ def main():
             # Backpropagate and update the weights
             loss.backward()
             optimizer.step()
+
+            if step % 100 == 0:
+                print(f"Epoch {epoch+1}, Step {step}, Loss: {loss.item()}")
 
             total_loss += loss.item()
 

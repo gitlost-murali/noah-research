@@ -31,7 +31,7 @@ class MathWordProblemDataset(Dataset):
         equations_encoded = [self.tokenizer(equation, return_tensors="pt", padding="max_length", max_length=64).to(self.device) for equation in equations]
         return mwp_encoded, equations_encoded, torch.tensor(local_gt, dtype=torch.float)
 
-def contrastive_loss(problems_embeddings, equations_embeddings, gt, temperature=1.0):
+def contrastive_loss(problems_embeddings, equations_embeddings, gt, temperature=1.0, fp16=False):
     problems_embeddings = problems_embeddings.unsqueeze(1)
     scores = torch.matmul(problems_embeddings, equations_embeddings.transpose(1, 2)) / temperature
     scores = scores.squeeze(1)
@@ -41,7 +41,8 @@ def contrastive_loss(problems_embeddings, equations_embeddings, gt, temperature=
     # calculate the number of 1's in x
     preds_corrected = (preds == 1).sum()
     # Compute the loss using binary cross-entropy
-    loss = torch.nn.BCELoss()(logits, gt)        
+    if fp16: loss = torch.nn.BCELoss()(logits.half(), gt.half())
+    else: loss = torch.nn.BCELoss()(logits, gt)
     return loss, preds_corrected
 
 def load_json(path):
@@ -125,7 +126,7 @@ def main():
             equations_encoded = torch.stack(equation_embeddings, dim=1)
 
             # Compute the contrastive loss
-            loss, bz_num_corrected = contrastive_loss(mwp_encoded, equations_encoded, gt.to(device))
+            loss, bz_num_corrected = contrastive_loss(mwp_encoded, equations_encoded, gt.to(device), fp16=args.fp16)
             train_acc += bz_num_corrected
 
             # Backpropagate and update the weights

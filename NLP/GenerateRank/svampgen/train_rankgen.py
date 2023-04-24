@@ -3,6 +3,7 @@ import json
 import torch
 import argparse
 from tqdm import tqdm
+from apex import amp
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
@@ -41,13 +42,10 @@ def contrastive_loss(problems_embeddings, equations_embeddings, gt, temperature=
     # calculate the number of 1's in x
     preds_corrected = (preds == 1).sum()
     # Compute the loss using binary cross-entropy
-    if fp16: 
-        logits.half()
-        gt.half()
-        logits = torch.clamp(logits, min=1e-7, max=1-1e-7)
-        gt = torch.clamp(gt, min=1e-7, max=1-1e-7)
+    if fp16:
+        loss = torch.nn.BCELoss()(logits.half(), gt.half())
+    else:
         loss = torch.nn.BCELoss()(logits, gt)
-    else: loss = torch.nn.BCELoss()(logits, gt)
     return loss, preds_corrected
 
 def load_json(path):
@@ -71,7 +69,8 @@ def main():
     parser.add_argument("--batch_size", type=int, default=2)
     parser.add_argument("--lr", type=float, default=5e-6)
     parser.add_argument("--epochs", type=int, default=10)
-    parser.add_argument("--fp16", action='store_true', default=False)
+    parser.add_argument("--fp16", action="store_true", help="Enable FP16 training")
+
     args = parser.parse_args()
 
     model_path = args.model_path
@@ -95,7 +94,6 @@ def main():
         model_size = model_size
 
     model = AutoModel.from_pretrained(model_path, trust_remote_code=True)
-    if args.fp16: model.half()
     model.to(device)
     model.train()
     tokenizer = T5Tokenizer.from_pretrained(f"google/t5-v1_1-{model_size}")
@@ -111,6 +109,8 @@ def main():
 
 
     optimizer = optim.AdamW(model.parameters(), lr=args.lr)
+    if args.fp16:
+        model, optimizer = amp.initialize(model, optimizer, opt_level="O1")
 
     # Training loop
     for epoch in range(num_epochs):
@@ -135,7 +135,12 @@ def main():
             train_acc += bz_num_corrected
 
             # Backpropagate and update the weights
-            loss.backward()
+            if args.fp16:
+                with amp.scale_loss(loss, optimizer) as scaled_loss:
+                    scaled_loss.backward()
+            else:
+                loss.backward()
+
             optimizer.step()
 
             if step % 100 == 0:
@@ -158,7 +163,7 @@ def main():
                 equations_encoded = torch.stack(equation_embeddings, dim=1)
 
                 # Compute the contrastive loss for the validation set
-                val_loss, bzval_num_corrected = contrastive_loss(mwp_encoded, equations_encoded, gt.to(device))
+                val_loss, bzval_num_corrected = contrastive_loss(mwp_encoded, equations_encoded, gt.to(device), fp16=args.fp16)
                 val_acc += bzval_num_corrected
 
                 total_val_loss += val_loss.item()

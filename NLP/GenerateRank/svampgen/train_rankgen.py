@@ -42,9 +42,11 @@ def contrastive_loss(problems_embeddings, equations_embeddings, gt, temperature=
     preds_corrected = (preds == 1).sum()
     # Compute the loss using binary cross-entropy
     if fp16: 
+        logits.half()
+        gt.half()
         logits = torch.clamp(logits, min=1e-7, max=1-1e-7)
         gt = torch.clamp(gt, min=1e-7, max=1-1e-7)
-        loss = torch.nn.BCELoss()(logits.half(), gt.half())
+        loss = torch.nn.BCELoss()(logits, gt)
     else: loss = torch.nn.BCELoss()(logits, gt)
     return loss, preds_corrected
 

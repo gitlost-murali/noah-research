@@ -65,6 +65,7 @@ def main():
     parser.add_argument("--batch_size", type=int, default=2)
     parser.add_argument("--lr", type=float, default=5e-6)
     parser.add_argument("--epochs", type=int, default=10)
+    parser.add_argument("--fp16", action='store_true', default=False)
     args = parser.parse_args()
 
     model_path = args.model_path
@@ -88,6 +89,7 @@ def main():
         model_size = model_size
 
     model = AutoModel.from_pretrained(model_path, trust_remote_code=True)
+    if args.fp16: model.half()
     model.to(device)
     model.train()
     tokenizer = T5Tokenizer.from_pretrained(f"google/t5-v1_1-{model_size}")

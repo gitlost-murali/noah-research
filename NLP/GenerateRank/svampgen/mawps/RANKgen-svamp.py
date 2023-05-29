@@ -130,7 +130,7 @@ for testfileidx in range(5):
     natural_eqn_acc = 0
     number_eqn_acc = 0
     naturalnumber_eqn_acc = 0
-    for item in track(samples_ans[:5], total = len(samples_ans)):
+    for item in track(samples_ans, total = len(samples_ans)):
         numberitem = dict()
         numberitem['prob'], numberitem['correct_answer'], numbermapper = replace_numholders(item['prob'], item['correct_answer'])
         numberitem['equations'] = replace_numholds_eqns(item['equations'], numbermapper)

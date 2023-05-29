@@ -9,24 +9,10 @@
 import re
 import random
 import json
-with open("./t5_preds.json", "r") as fh:
-    samples_ans = json.load(fh)
-
-
-# In[2]:
-
-
 import os
 import torch
-
-
-
-
-# In[96]:
-
-
 from typing import List
-
+from rich.progress import track
 
 # In[4]:
 
@@ -34,10 +20,6 @@ from typing import List
 from rankgen import RankGenEncoder
 
 rankgen_encoder = RankGenEncoder("kalpeshk2011/rankgen-t5-xl-all")
-
-
-# In[131]:
-
 
 def equation_to_natural_language(equation: str) -> str:
     def tokenize(expression: str) -> List[str]:
@@ -103,12 +85,6 @@ def equation_to_natural_language(equation: str) -> str:
         return "Incorrect equation"
 
 
-# In[132]:
-
-
-from rich.progress import track
-
-
 # In[ ]:
 def replace_numholders(mwp, equation):
     """
@@ -130,6 +106,12 @@ def replace_numholders(mwp, equation):
     return mwp, equation, number_mapper
 
 def replace_numholds_eqns(equations, number_mapper):
+    """
+    number_mapper: dict of number placeholders and their actual values
+    example: {"number0": "2", "number1": "3"}
+    equations: list of equations with number placeholders
+    example: ["number0 * (number1 + number0)", "number1 * (number0 + number1)"]
+    """
     result_equations = []
     for eq in equations:
         for k,v in number_mapper.items():
@@ -140,51 +122,52 @@ def replace_numholds_eqns(equations, number_mapper):
     return result_equations
 
 
-math_eqn_acc = 0
-natural_eqn_acc = 0
-number_eqn_acc = 0
-naturalnumber_eqn_acc = 0
-for item in track(samples_ans, total = len(samples_ans)):
-    numberitem = dict()
-    numberitem['prob'], numberitem['correct_answer'], numbermapper = replace_numholders(item['prob'], item['correct_answer'])
-    numberitem['equations'] = replace_numholds_eqns(item['equations'], numbermapper)
+for testfileidx in range(5):
+    with open(f"mawps_test_{testfileidx}.json", "r") as fh:
+        samples_ans = json.load(fh)
 
-    prefix_vectors = rankgen_encoder.encode([item["prob"]+" Give the answer in equation form"], vectors_type="prefix")
-    suffix_vectors = rankgen_encoder.encode(item["equations"], vectors_type="suffix")
-    natural_suffix_vectors = rankgen_encoder.encode([equation_to_natural_language(it) for it in item["equations"]], vectors_type="suffix")
+    math_eqn_acc = 0
+    natural_eqn_acc = 0
+    number_eqn_acc = 0
+    naturalnumber_eqn_acc = 0
+    for item in track(samples_ans[:5], total = len(samples_ans)):
+        numberitem = dict()
+        numberitem['prob'], numberitem['correct_answer'], numbermapper = replace_numholders(item['prob'], item['correct_answer'])
+        numberitem['equations'] = replace_numholds_eqns(item['equations'], numbermapper)
 
-    num_prefix_vectors = rankgen_encoder.encode([numberitem["prob"]+" Give the answer in equation form"], vectors_type="prefix")
-    num_suffix_vectors = rankgen_encoder.encode(numberitem["equations"], vectors_type="suffix")
-    num_natural_suffix_vectors = rankgen_encoder.encode([equation_to_natural_language(it) for it in numberitem["equations"]], vectors_type="suffix")
+        prefix_vectors = rankgen_encoder.encode([item["prob"]+" Give the answer in equation form"], vectors_type="prefix")
+        suffix_vectors = rankgen_encoder.encode(item["equations"], vectors_type="suffix")
+        natural_suffix_vectors = rankgen_encoder.encode([equation_to_natural_language(it) for it in item["equations"]], vectors_type="suffix")
 
-
-    scores = torch.matmul(prefix_vectors["embeddings"], suffix_vectors["embeddings"].transpose(1,0))
-    best_eqnidx_rankgen = torch.argmax(scores)
-    if item["gt"][best_eqnidx_rankgen] == 1:  math_eqn_acc+=1
-
-    natural_scores = torch.matmul(prefix_vectors["embeddings"], natural_suffix_vectors["embeddings"].transpose(1,0))
-    best_eqnidx_rankgen_nat = torch.argmax(natural_scores)
-    if item["gt"][best_eqnidx_rankgen_nat] == 1: natural_eqn_acc+=1    
-
-    number_scores = torch.matmul(num_prefix_vectors["embeddings"], num_suffix_vectors["embeddings"].transpose(1,0))
-    num_best_eqnidx_rankgen = torch.argmax(number_scores)
-    if item["gt"][num_best_eqnidx_rankgen] == 1:  number_eqn_acc+=1
-
-    number_natural_scores = torch.matmul(num_prefix_vectors["embeddings"], num_natural_suffix_vectors["embeddings"].transpose(1,0))
-    numnat_best_eqnidx_rankgen_nat = torch.argmax(number_natural_scores)
-    if item["gt"][numnat_best_eqnidx_rankgen_nat] == 1: naturalnumber_eqn_acc+=1    
+        num_prefix_vectors = rankgen_encoder.encode([numberitem["prob"]+" Give the answer in equation form"], vectors_type="prefix")
+        num_suffix_vectors = rankgen_encoder.encode(numberitem["equations"], vectors_type="suffix")
+        num_natural_suffix_vectors = rankgen_encoder.encode([equation_to_natural_language(it) for it in numberitem["equations"]], vectors_type="suffix")
 
 
-# In[ ]:
+        scores = torch.matmul(prefix_vectors["embeddings"], suffix_vectors["embeddings"].transpose(1,0))
+        best_eqnidx_rankgen = torch.argmax(scores)
+        if item["gt"][best_eqnidx_rankgen] == 1:  math_eqn_acc+=1
+
+        natural_scores = torch.matmul(prefix_vectors["embeddings"], natural_suffix_vectors["embeddings"].transpose(1,0))
+        best_eqnidx_rankgen_nat = torch.argmax(natural_scores)
+        if item["gt"][best_eqnidx_rankgen_nat] == 1: natural_eqn_acc+=1    
+
+        number_scores = torch.matmul(num_prefix_vectors["embeddings"], num_suffix_vectors["embeddings"].transpose(1,0))
+        num_best_eqnidx_rankgen = torch.argmax(number_scores)
+        if item["gt"][num_best_eqnidx_rankgen] == 1:  number_eqn_acc+=1
+
+        number_natural_scores = torch.matmul(num_prefix_vectors["embeddings"], num_natural_suffix_vectors["embeddings"].transpose(1,0))
+        numnat_best_eqnidx_rankgen_nat = torch.argmax(number_natural_scores)
+        if item["gt"][numnat_best_eqnidx_rankgen_nat] == 1: naturalnumber_eqn_acc+=1    
 
 
-print(f"Math eqn accuracy is {math_eqn_acc}")
+    print(f"FOLD {testfileidx}: Math eqn accuracy is {math_eqn_acc}")
 
-print(f"Natural eqn accuracy is {natural_eqn_acc}")
+    print(f"FOLD {testfileidx}: Natural eqn accuracy is {natural_eqn_acc}")
 
-print(f"Numbers in eqn accuracy is {number_eqn_acc}")
+    print(f"FOLD {testfileidx}: Numbers in eqn accuracy is {number_eqn_acc}")
 
-print(f"Natural Numbers in eqn accuracy is {naturalnumber_eqn_acc}")
+    print(f"FOLD {testfileidx}: Natural Numbers in eqn accuracy is {naturalnumber_eqn_acc}")
 # In[ ]:
 
 

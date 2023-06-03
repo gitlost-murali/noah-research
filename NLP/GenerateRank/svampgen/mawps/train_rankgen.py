@@ -59,9 +59,8 @@ def main():
     parser.add_argument("--model_path", type=str, default="kalpeshk2011/rankgen-t5-xl-all")
     parser.add_argument("--model_size", type=str, default=None)
     parser.add_argument("--device", type=str, default='cuda' if torch.cuda.is_available() else 'cpu')
-    parser.add_argument("--trainfile", type=str, default="traint5_preds.json")
-    parser.add_argument("--valfile", type=str, default="t5_preds.json")
-
+    parser.add_argument("--trainfile", type=str, default="mawps_train_0.json")
+    parser.add_argument("--valfile", type=str, default="mawps_test_0.json")
     parser.add_argument("--batch_size", type=int, default=2)
     parser.add_argument("--lr", type=float, default=5e-6)
     parser.add_argument("--epochs", type=int, default=10)

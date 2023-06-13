@@ -1,9 +1,12 @@
 import re
+import sys
 import torch
 import random
 import argparse
 from tqdm import tqdm
 import transformers
+
+sys.path.append("../")
 from utils import read_json, is_equal_svamp
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
@@ -41,6 +44,7 @@ def main(
     model_path = "/scratch/s5397294/falcon-7b/",
     trainfile = "../svampgen/svamp/traint5_preds.json",
     testfile = "../svampgen/svamp/t5_preds.json",
+    quantize = False,
 ) -> None:
     """Generates text samples based on a pre-trained LLaMA model and tokenizer.
 
@@ -104,5 +108,6 @@ if __name__ == "__main__":
     argparser.add_argument("--model_path", type=str, default="/scratch/s5397294/falcon-7b/")
     argparser.add_argument("--trainfile", type=str, default="../svampgen/svamp/traint5_preds.json")
     argparser.add_argument("--testfile", type=str, default="../svampgen/svamp/t5_preds.json")
+    argparser.add_argument("--quantize", type=bool, default=False)
     args = argparser.parse_args()
     main(**vars(args))

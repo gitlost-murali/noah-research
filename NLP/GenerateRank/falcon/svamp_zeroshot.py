@@ -94,6 +94,10 @@ def main(
         res = is_equal_svamp(proof, generated_eqn, numbers, "infix")
         if res:
             acc += 1
+        
+        print(f"MWP: {input_text}")
+        print("--"*10)
+        print(f"GT: {proof}")
         print(f"Matched ones are {acc}  out of {i+1}, {generated_eqn} \n")
         print("*"*50)
 

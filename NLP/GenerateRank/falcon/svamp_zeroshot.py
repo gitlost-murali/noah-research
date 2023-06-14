@@ -80,7 +80,7 @@ def main(
 
         input_text = f'Task: Solve the following math word problem: {goal}. Give the final answer as an equation in infix order. Be aware of the paranthesis when BODMAS issues will arrive. Answer: '
         prefix_prompt = prefix_prompts[i]
-        input_text += prefix_prompt
+        input_text = prefix_prompt + input_text
 
         sequences = pipeline(
             input_text,

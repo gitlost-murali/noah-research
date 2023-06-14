@@ -98,6 +98,7 @@ def main(
         print(f"MWP: {input_text}")
         print("--"*10)
         print(f"GT: {proof}")
+        print("--"*10)
         print(f"Matched ones are {acc}  out of {i+1}, {generated_eqn} \n")
         print("*"*50)
 

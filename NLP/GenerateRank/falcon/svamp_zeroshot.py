@@ -90,7 +90,7 @@ def main(
             num_return_sequences=1,
             eos_token_id=tokenizer.eos_token_id,
         )
-        generated_eqn = sequences[0]["generated_text"].strip()
+        generated_eqn = sequences[0]["generated_text"].strip().split("<eos>")[0].strip()
         res = is_equal_svamp(proof, generated_eqn, numbers, "infix")
         if res:
             acc += 1

@@ -68,8 +68,7 @@ def main(
         trust_remote_code=True,
         device_map="auto",
     )
-
-    prefix_prompts = [generate_prefix_prompt(traindata, incontext_samples) for _ in len(data)]
+    prefix_prompts = [generate_prefix_prompt(traindata, incontext_samples) for _ in range(len(data))]
     acc = 0
     for i, item in enumerate(tqdm(data, desc="Prepare train data")):
         goal, proof, pred_eqns = item["prob"], item["correct_answer"], item["equations"]
